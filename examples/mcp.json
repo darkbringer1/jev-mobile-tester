@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "jev-mobile": {
+      "command": "uv",
+      "args": [
+        "--directory", "/absolute/path/to/jev-mobile",
+        "run", "--env-file", "/absolute/path/to/jev-mobile/.env",
+        "jev-mobile", "serve"
+      ],
+      "env": {
+        "JEV_DEVICE_ID": "YOUR_SIMULATOR_UDID",
+        "JEV_APP_ID": "com.example.myapp"
+      }
+    }
+  }
+}

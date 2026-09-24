@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 0 1200 400" role="img" aria-labelledby="title description">
+  <title id="title">Jev Mobile</title>
+  <desc id="description">Mobile automation for AI agents. One goal enters a local Jev Mobile MCP server, which uses Jev and Maestro to interact with an iOS simulator and return a compact result.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#111c31"/>
+      <stop offset="1" stop-color="#081019"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#63e6be"/>
+      <stop offset="1" stop-color="#72b8ff"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+      <path d="M1 1 L6 4 L1 7" fill="none" stroke="#79a3bd" stroke-width="1.5"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="400" rx="22" fill="url(#background)"/>
+  <path d="M0 0 H1200" stroke="url(#accent)" stroke-width="6"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif">
+    <text x="60" y="63" font-size="14" font-weight="600" letter-spacing="3" fill="#7cddc0">MOBILE AUTOMATION FOR AI AGENTS</text>
+    <text x="57" y="139" font-size="66" font-weight="750" letter-spacing="-2" fill="#f4f8ff">Jev Mobile</text>
+    <text x="60" y="180" font-size="24" fill="#a9bbcf">One goal in. A compact result out.</text>
+    <rect x="991" y="39" width="149" height="30" rx="15" fill="#1d3041" stroke="#375169"/>
+    <text x="1065" y="59" text-anchor="middle" font-size="11" font-weight="600" letter-spacing="1.5" fill="#d1deec">EARLY PREVIEW</text>
+    <g transform="translate(1040 96)" fill="none" stroke="#78dcca" stroke-width="2">
+      <rect width="47" height="77" rx="10"/>
+      <path d="M17 8 H30 M17 67 H30" stroke-linecap="round"/>
+      <rect x="9" y="21" width="29" height="10" rx="3" fill="#1a3b42" stroke="none"/>
+      <path d="M10 42 H36 M10 51 H28" stroke="#658799" stroke-linecap="round"/>
+    </g>
+    <rect x="60" y="225" width="276" height="100" rx="14" fill="#142237" stroke="#30455e"/>
+    <text x="84" y="263" font-size="22" font-weight="600" fill="#f4f8ff">Your AI agent</text>
+    <text x="84" y="292" font-size="15" fill="#9fbed2">Goal + success checks</text>
+    <path d="M351 275 H427" stroke="#79a3bd" stroke-width="2" marker-end="url(#arrow)"/>
+    <rect x="447" y="225" width="306" height="100" rx="14" fill="#113137" stroke="#55baa6"/>
+    <text x="471" y="263" font-size="22" font-weight="600" fill="#e6fff5">Jev Mobile MCP</text>
+    <text x="471" y="292" font-size="15" fill="#91d8c8">Jev decisions · Maestro actions</text>
+    <path d="M768 275 H844" stroke="#79a3bd" stroke-width="2" marker-end="url(#arrow)"/>
+    <rect x="864" y="225" width="276" height="100" rx="14" fill="#142237" stroke="#30455e"/>
+    <text x="888" y="263" font-size="22" font-weight="600" fill="#f4f8ff">iOS simulator</text>
+    <text x="888" y="292" font-size="15" fill="#9fbed2">Observe · act · verify</text>
+    <text x="60" y="369" font-size="14" fill="#819bb2">Compact agent responses. Local traces. Exportable Maestro flows.</text>
+  </g>
+</svg>

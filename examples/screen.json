@@ -1,0 +1,1 @@
+{"ui_schema":{"platform":"ios"},"elements":[{"b":"[0,0][393,852]","c":[{"b":"[20,80][200,125]","a11y":"Settings","rid":"settings_button","cls":"Button"},{"b":"[20,150][350,200]","a11y":"Search","rid":"search_field","cls":"TextField"}]}]}
