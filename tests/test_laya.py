@@ -9,7 +9,7 @@ from starlette.testclient import TestClient
 
 from jev_mobile.laya import Laya, action_choices, compact_request
 from jev_mobile.laya_server import create_app
-from jev_mobile.policy import create_model, request_body
+from jev_mobile.policy import create_model, request_body, validate_answer
 from jev_mobile.screen import parse_screen
 
 
@@ -153,3 +153,71 @@ def test_compact_state_preserves_values_states_and_action_history():
     state = compact_request(body)["state"]
     assert "Enabled" in state and '"checked": true' in state
     assert '"selected": true' in state and "Tap General" in state
+
+
+class FakeTokenizer:
+    def encode(self, text, add_special_tokens=False):
+        # Single letters are one token; anything else is several.
+        return [ord(text)] if len(text) == 1 else [1, 2]
+
+    def apply_chat_template(self, messages, **kwargs):
+        assert kwargs.get("enable_thinking") is False
+        return "<user>" + messages[0]["content"]
+
+
+class ScriptedQwen:
+    """QwenRuntime with fixed letter scores instead of an MLX forward pass."""
+
+    def __new__(cls, scores):
+        from jev_mobile.laya_server import QwenRuntime
+
+        class Runtime(QwenRuntime):
+            def score(self, prompt, count):
+                self.prompts.append(prompt)
+                return scores[:count], 42
+
+        runtime = Runtime(loaded=(None, FakeTokenizer()))
+        runtime.prompts = []
+        return runtime
+
+
+def test_qwen_runtime_returns_laya_contract_over_offered_actions():
+    body = request()
+    compact = compact_request(body)
+    names = list(compact["questions"]["action"]["criteria"])
+    scores = [0.05] * len(names)
+    scores[names.index("Tap Settings")] = 1 - 0.05 * (len(names) - 1)
+    runtime = ScriptedQwen(scores)
+    result = runtime.predict(compact["state"], compact["questions"])
+    answer = result["answers"]["action"]
+    assert answer["choice"] == "Tap Settings"
+    assert set(answer["probabilities"]) == set(names)
+    assert answer["confidence"] == max(answer["probabilities"].values())
+    assert result["usage"] == {"input_tokens": 42, "output_tokens": 0}
+    prompt = runtime.prompts[0]
+    assert "A. " + names[0] in prompt and "Reply with the letter" in prompt
+    assert compact["state"] in prompt
+    # The answer passes the client's validation unchanged.
+    choices = action_choices(body)
+    assert validate_answer(answer, choices, 0.5) == "Tap Settings"
+
+
+def test_qwen_runtime_rejects_unsupported_questions():
+    runtime = ScriptedQwen([0.5, 0.5])
+    assert len(runtime.label_ids) == 52
+    with pytest.raises(ValueError, match="choice"):
+        runtime.predict("s", {"q": {"type": "score", "criteria": {"a": None, "b": None}}})
+    too_many = {"q": {"type": "choice", "criteria": {str(i): None for i in range(53)}}}
+    with pytest.raises(ValueError, match="2–52"):
+        runtime.predict("s", too_many)
+
+
+def test_qwen_app_reports_its_backend():
+    app = create_app("qwen-model", None, loader=lambda: ScriptedQwen([0.9, 0.1]), backend="qwen")
+    with TestClient(app) as client:
+        assert client.get("/health").json()["backend"] == "qwen-mlx"
+        response = client.post(
+            "/v1/systemone",
+            json={"state": "Goal: x", "questions": {"q": {"type": "choice", "criteria": {"a": None, "b": None}}}},
+        )
+        assert response.json()["answers"]["q"]["choice"] == "a"

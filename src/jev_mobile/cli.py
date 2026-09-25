@@ -81,6 +81,14 @@ def parser():
     setup.add_argument("--laya-url", help="Local Laya origin; default http://127.0.0.1:8081")
     local = sub.add_parser("laya-serve", help="Serve Laya locally on Apple Silicon (extra: laya)")
     local.add_argument("--port", type=int, default=8081)
+    local.add_argument(
+        "--runtime",
+        choices=("laya", "qwen"),
+        default="laya",
+        help="laya: the Laya checkpoint; qwen: Qwen3.5-4B (MLX 4-bit) as a letter classifier",
+    )
+    local.add_argument("--model", help="Override the runtime's pinned model ID")
+    local.add_argument("--revision", help="Model revision when --model is set")
     test = sub.add_parser(
         "test", help="Run Maestro flows without a model; prints one line, exits 1 on failure"
     )
@@ -254,7 +262,7 @@ def main():
         if args.command == "laya-serve":
             from .laya_server import serve
 
-            serve(port=args.port)
+            serve(port=args.port, runtime=args.runtime, model_id=args.model, revision=args.revision)
             return
         if args.command == "setup":
             from .clients import setup

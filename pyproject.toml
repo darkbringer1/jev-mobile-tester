@@ -18,6 +18,7 @@ jev-mobile = "jev_mobile.cli:main"
 [project.optional-dependencies]
 laya = [
     "laya-mlx==0.2.0",
+    "mlx-lm>=0.28,<1",
     "starlette>=0.40,<2",
     "uvicorn>=0.30,<1",
 ]
