@@ -162,7 +162,8 @@ def test_report_is_bounded_and_rejects_path_traversal(tmp_path):
     assert asyncio.run(svc.report(result["run_id"], 0))["recent"] == []
     assert asyncio.run(svc.report("../../.env"))["status"] == "invalid"
     assert asyncio.run(svc.report(result["run_id"], 11))["status"] == "invalid"
-    assert asyncio.run(svc.report(result["run_id"], wait=500))["status"] == "invalid"
+    # Oversized waits are capped rather than rejected.
+    assert asyncio.run(svc.report(result["run_id"], wait=500))["status"] == result["status"]
 
 
 def test_invalid_literals_rejected_before_device_actions(tmp_path):
@@ -240,8 +241,9 @@ def test_screen_is_compact_and_omits_empty_fields(tmp_path):
 def test_run_flow_wraps_commands_with_default_app(tmp_path):
     svc = service(tmp_path)
     result = asyncio.run(svc.run_flow('- tapOn: "General"\n- back'))
-    assert result.keys() == {"status", "run_id", "ms", "steps"}
+    assert result.keys() == {"status", "run_id", "ms", "steps", "screen"}
     assert (result["status"], result["steps"]) == ("passed", 2)
+    assert {"text": "Settings", "id": "settings_button"} in result["screen"]
     report = json.loads((tmp_path / result["run_id"] / "result.json").read_text())
     assert report["commands"] == [{"tapOn": "General"}, "back"]
     assert svc.maestro.calls == [("com.example.app", [{"tapOn": "General"}, "back"])]
@@ -331,3 +333,20 @@ def test_low_confidence_step_is_reported_with_candidates(tmp_path):
     recent = asyncio.run(svc.report(result["run_id"]))["recent"]
     assert recent[-1]["status"] == "low_confidence"
     assert recent[-1]["candidates"][0] == {"action": "Tap Next", "p": 0.19}
+
+
+def test_failed_flow_reports_reason_and_resulting_screen(tmp_path):
+    class FailingDevice(Device):
+        def for_app(self, app_id):
+            return self
+
+        async def run(self, device_id, commands):
+            raise RuntimeError("login.yaml: Assertion is false: " + '"Welcome" is visible ' * 30)
+
+    svc = MobileService(FailingDevice(), None, tmp_path, device_id="sim", app_id="app")
+    result = asyncio.run(svc.run_flow("- assertVisible: Welcome"))
+    assert result["status"] == "error"
+    assert result["error"].startswith("login.yaml: Assertion is false")
+    assert result["screen"]
+    report = asyncio.run(svc.report(result["run_id"]))
+    assert len(report["error_detail"]) > len(result["error"])

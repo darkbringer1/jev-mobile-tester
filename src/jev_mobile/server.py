@@ -24,15 +24,33 @@ def compact(value):
     return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
 
 
-def short_error(error, secrets=()):
+def short_error(error, secrets=(), limit=240):
     if isinstance(error, BaseExceptionGroup):
-        message = "; ".join(short_error(child, secrets) for child in error.exceptions)
+        message = "; ".join(short_error(child, secrets, limit) for child in error.exceptions)
     else:
         message = str(error)
     for secret in secrets:
         if secret:
             message = message.replace(secret, "[redacted]")
-    return " ".join(message.split())[:240]
+    return " ".join(message.split())[:limit]
+
+
+def clamp_wait(seconds):
+    return min(max(float(seconds), 0), MAX_WAIT)
+
+
+def visible(screen):
+    """Compact {text,id,value} items; the same shape the screen tool returns."""
+    elements = []
+    for element in screen.elements:
+        item = {"text": element.label, "id": element.resource_id, "value": element.value}
+        item = {k: v for k, v in item.items() if v}
+        if element.checked:
+            item["checked"] = True
+        if element.selected:
+            item["selected"] = True
+        elements.append(item)
+    return elements
 
 
 WAIT = 45  # Seconds a tool call waits before returning a running run_id; under client limits.
@@ -89,8 +107,9 @@ class MobileService:
         check = getattr(self.maestro, "foreign_drivers", None)
         if check and (pids := await check(device)):
             raise DeviceBusy(
-                f"Another Maestro driver (xcodebuild pid {', '.join(map(str, pids))}) controls "
-                f"{device}; stop that Maestro session or remove the separate Maestro MCP server"
+                f"Another Maestro iOS driver is running (xcodebuild pid "
+                f"{', '.join(map(str, pids))}). Maestro drivers share port 22087, so only one "
+                "can control any simulator at a time; stop that Maestro session first"
             )
         return device
 
@@ -120,16 +139,7 @@ class MobileService:
         async def observe(device):
             if raw:
                 return {"device": device, "raw": await self.maestro.inspect(device)}
-            elements = []
-            for element in (await self.maestro.observe(device)).elements:
-                item = {"text": element.label, "id": element.resource_id, "value": element.value}
-                item = {k: v for k, v in item.items() if v}
-                if element.checked:
-                    item["checked"] = True
-                if element.selected:
-                    item["selected"] = True
-                elements.append(item)
-            return {"device": device, "elements": elements}
+            return {"device": device, "elements": visible(await self.maestro.observe(device))}
 
         return await self.direct(observe, device_id)
 
@@ -142,8 +152,7 @@ class MobileService:
         Clients abandon slow tool calls, so long runs return a run_id that run_report
         can wait on. The run keeps the device lock until it finishes or is cancelled.
         """
-        if not 0 <= wait <= MAX_WAIT:
-            return {"status": "invalid", "error": f"wait must be 0–{MAX_WAIT} seconds"}
+        wait = clamp_wait(wait)
         if self.lock.locked():
             return self.busy()
         await self.lock.acquire()
@@ -182,6 +191,9 @@ class MobileService:
             await self.reset()
         except Exception as error:  # noqa: BLE001 -- persist failed runs at service boundary
             report.update(status="error", error=short_error(error, secrets))
+            detail = short_error(error, secrets, 4000)
+            if detail != report["error"]:
+                report["error_detail"] = detail
         finally:
             report["ms"] = round((time.perf_counter() - report.pop("started")) * 1000)
             (directory / "result.json").write_text(json.dumps(report, indent=2))
@@ -249,17 +261,29 @@ class MobileService:
 
             async def work(report, device, directory):
                 report.update(app_id=app_id, commands=steps, counts={"steps": len(steps)})
-                await self.maestro.for_app(app_id).run(device, steps)
+                async with self.observing(report, device):
+                    await self.maestro.for_app(app_id).run(device, steps)
                 report["status"] = "passed"
         else:
             paths = [str(Path(f).resolve()) for f in files]
 
             async def work(report, device, directory):
                 report.update(files=paths, counts={"files": len(paths)})
-                await self.maestro.run_files(device, paths, env)
+                async with self.observing(report, device):
+                    await self.maestro.run_files(device, paths, env)
                 report["status"] = "passed"
 
         return await self.start("flow", device_id, work, wait, progress=progress)
+
+    @contextlib.asynccontextmanager
+    async def observing(self, report, device):
+        """Attach the resulting screen, passed or failed, to save the agent a screen call."""
+        try:
+            yield
+        finally:
+            with contextlib.suppress(Exception):
+                async with asyncio.timeout(20):
+                    report["screen"] = visible(await self.maestro.observe(device))
 
     async def run(
         self,
@@ -336,6 +360,8 @@ class MobileService:
             result.update(report.get("counts", {}))
         if report.get("error"):
             result["error"] = report["error"]
+        if "screen" in report:
+            result["screen"] = report["screen"]
         usages = [step["usage"] for step in report["steps"] if isinstance(step.get("usage"), dict)]
         if usages:
             result["jev_tokens"] = {
@@ -347,8 +373,7 @@ class MobileService:
     async def report(self, run_id, last_steps=3, wait=0):
         if not re.fullmatch(r"[a-f0-9]{32}", run_id) or not 0 <= last_steps <= 10:
             return {"status": "invalid", "error": "Use returned run_id; last_steps must be 0–10"}
-        if not 0 <= wait <= MAX_WAIT:
-            return {"status": "invalid", "error": f"wait must be 0–{MAX_WAIT} seconds"}
+        wait = clamp_wait(wait)
         if run_id in self.jobs:
             _, live = self.jobs[run_id]
             result = await self.wait(run_id, wait)
@@ -361,6 +386,8 @@ class MobileService:
         report = json.loads(path.read_text())
         result = self.summary(report)
         result["recent"] = self.recent(report["steps"], last_steps)
+        if report.get("error_detail"):
+            result["error_detail"] = report["error_detail"]
         flow = path.with_name("flow.yaml")
         if flow.is_file():
             result["flow"] = str(flow.resolve())
@@ -461,9 +488,11 @@ def create_server(
         env: dict[str, str] | None = None,
         wait: int = WAIT,
     ) -> str:
-        """Run Maestro steps. commands: YAML list, e.g. '- tapOn: "General"\n- inputText: hi\n
-        - assertVisible: About'. Also: launchApp, tapOn {id}, eraseText, back, scroll,
-        swipe, pressKey. files: existing flow paths (env optional). Omit app_id if configured.
+        """Run Maestro steps. Batch every step you can predict into ONE call (each call costs
+        a turn): e.g. '- tapOn: "General"\n- tapOn: "About"\n- assertVisible: "iOS Version"'.
+        Also: launchApp, tapOn {id}, inputText, eraseText, back, scroll, swipe, pressKey,
+        extendedWaitUntil. files: existing flow paths (env optional). Omit app_id if configured.
+        The result includes the resulting screen, so a separate screen call is rarely needed.
         Returns running + run_id if not done within wait seconds; then use run_report.
         """
         return compact(

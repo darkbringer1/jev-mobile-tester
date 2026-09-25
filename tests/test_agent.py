@@ -230,19 +230,20 @@ def test_driver_detection_separates_own_and_foreign_processes(monkeypatch):
     from jev_mobile import maestro
 
     driver = "xcodebuild test-without-building -xctestrun /t/maestro-driver-ios.xctestrun"
+    sim = "0768F6BA-68FE-498C-8940-73D0A81976A2"
     rows = [
         (10, 1, "jev-mobile serve"),
         (11, 10, "java maestro mcp"),
-        (12, 11, driver + " -destination id=SIM"),
+        (12, 11, driver + f" -destination id={sim}"),
         (20, 1, "java maestro mcp"),
-        (21, 20, driver + " -destination id=SIM"),
-        (22, 20, driver + " -destination id=OTHER"),
+        (21, 20, driver + " -destination id=11111111-2222-3333-4444-555555555555"),
         (30, 1, "xcodebuild build"),
     ]
     monkeypatch.setattr(maestro, "process_table", lambda: rows)
     assert maestro.descendants(rows, 10) == {11, 12}
-    assert maestro.foreign_drivers("SIM", root=10) == [21]
-    assert maestro.foreign_drivers("OTHER", root=10) == [22]
+    # Drivers share one port, so a driver on another simulator still conflicts.
+    assert maestro.foreign_drivers(sim, root=10) == [21]
+    assert maestro.foreign_drivers("emulator-5554", root=10) == []
 
 
 @pytest.mark.parametrize("leaf", [{}, {"b": "[300.5,500][340,520]"}, {"b": ""}])

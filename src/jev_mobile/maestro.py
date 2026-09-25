@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import json
 import os
+import re
 import signal
 import subprocess
 from collections import defaultdict
@@ -29,7 +30,12 @@ class Maestro:
         return Maestro(self.session, self.tools, app_id)
 
     async def call_raw(self, name, arguments):
-        result = await self.session.call_tool(name, arguments)
+        try:
+            result = await self.session.call_tool(name, arguments)
+        except McpError as error:
+            # A bare "Internal error" hides the cause; keep any detail Maestro attached.
+            data = f": {error.error.data}" if error.error.data else ""
+            raise RuntimeError(f"Maestro {name}: {error.error.message}{data}") from error
         text = "\n".join(item.text for item in result.content if item.type == "text")
         if result.isError or text.startswith(("Failed to ", "Error:")):
             raise RuntimeError(f"Maestro {name} failed: {text}")
@@ -80,11 +86,13 @@ class Maestro:
             result = json.loads(text)
         except json.JSONDecodeError:
             result = {}
-        if result.get("success") is False or result.get("status", "").lower() in {
+        if not isinstance(result, dict):
+            return text
+        if result.get("success") is False or str(result.get("status", "")).lower() in {
             "failed",
             "error",
         }:
-            raise RuntimeError(f"Maestro command failed: {text}")
+            raise RuntimeError(failure_reason(result) or f"Maestro command failed: {text}")
         return text
 
 
@@ -117,6 +125,16 @@ async def connect(command="maestro", app_id=None):
         yield Maestro(session, tools, app_id)
 
 
+def failure_reason(result):
+    """Lead with each failed flow's own error; the full JSON buries it after long paths."""
+    reasons = [
+        f"{os.path.basename(str(item.get('file', ''))) or 'flow'}: {item.get('error') or item.get('message')}"
+        for item in result.get("results", [])
+        if isinstance(item, dict) and item.get("success") is False
+    ]
+    return "; ".join(reasons) or result.get("error") or result.get("message")
+
+
 def process_table():
     output = subprocess.run(
         ["ps", "-Ao", "pid=,ppid=,command="], capture_output=True, text=True, check=False
@@ -142,22 +160,28 @@ def descendants(rows, root):
     return found
 
 
-def drivers(rows, device=None):
+def drivers(rows):
     """iOS Maestro drivers: `xcodebuild test-without-building` on a maestro-driver xctestrun."""
     return [
-        pid
-        for pid, _, command in rows
-        if "xcodebuild" in command
-        and "maestro-driver" in command
-        and (device is None or f"id={device}" in command)
+        pid for pid, _, command in rows if "xcodebuild" in command and "maestro-driver" in command
     ]
 
 
+def ios_simulator(device):
+    return re.fullmatch(r"[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}", device) is not None
+
+
 def foreign_drivers(device, root=None):
-    """Drivers on this device that another Maestro process started."""
+    """iOS drivers another Maestro process started, on any simulator.
+
+    Maestro's MCP server always serves its iOS driver on 127.0.0.1:22087, and simulators
+    share the Mac's loopback, so a driver on one simulator answers for every other one.
+    """
+    if not ios_simulator(device):
+        return []
     rows = process_table()
     ours = descendants(rows, root or os.getpid())
-    return [pid for pid in drivers(rows, device) if pid not in ours]
+    return [pid for pid in drivers(rows) if pid not in ours]
 
 
 def kill_own_drivers(root=None):

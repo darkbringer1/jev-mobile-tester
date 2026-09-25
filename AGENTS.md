@@ -33,7 +33,9 @@ and detail retrieval explicit. Preserve independent completion assertions.
 
 ## Integration notes
 
-The tested Maestro 2.10.0 build supports `mcp --no-viewer`. Disabling its optional viewer
+The tested Maestro 2.10.0 build supports `mcp --no-viewer`. Its MCP server hard-codes the
+iOS driver port 22087, so only one Maestro-driven iOS simulator works per Mac at a time;
+concurrent Maestro agents on separate simulators cross-talk. Disabling its optional viewer
 avoided a SimulatorKit load failure in the local validation environment. Every MCP `run`
 call needs a full YAML flow with `appId`, `---`, and commands. The tested iOS hierarchy
 omits control types; `values`/`--values` explicitly identifies editable fields by ID.

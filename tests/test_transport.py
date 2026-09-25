@@ -61,7 +61,7 @@ def test_reset_stops_in_flight_maestro_work_and_restarts(tmp_path):
         "server = FastMCP('fake')\n"
         "@server.tool()\n"
         "def list_devices() -> str:\n"
-        "    return '{\"devices\": [], \"pid\": %d}' % os.getpid()\n"
+        '    return \'{"devices": [], "pid": %d}\' % os.getpid()\n'
         "@server.tool()\n"
         "def run(device_id: str, yaml: str) -> str:\n"
         "    time.sleep(3)\n"
@@ -87,3 +87,23 @@ def test_reset_stops_in_flight_maestro_work_and_restarts(tmp_path):
         assert not marker.exists()  # The abandoned flow never completed.
 
     asyncio.run(exercise())
+
+
+def test_flow_file_failures_lead_with_the_reason():
+    from jev_mobile.maestro import Maestro
+
+    text = json.dumps(
+        {
+            "success": False,
+            "total_commands_executed": 0,
+            "results": [
+                {
+                    "file": "/very/long/path/" * 20 + "overtime.yaml",
+                    "success": False,
+                    "error": 'Assertion is false: "Total" is visible',
+                }
+            ],
+        }
+    )
+    with pytest.raises(RuntimeError, match=r'^overtime.yaml: Assertion is false: "Total"'):
+        Maestro.checked(text)

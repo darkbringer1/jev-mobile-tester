@@ -66,9 +66,9 @@ Do not run another controller against the same simulator during a goal.
 | `devices()` | Connected devices only; omit when a default is configured. |
 | `screen(device_id?, raw?)` | Compact visible elements as `{text, id, value}`. `raw` returns Maestro's hierarchy, only to debug a missing element. |
 | `screenshot(device_id?)` | Image of the current screen. Large; prefer `screen`. |
-| `run_flow(commands? \| files?, device_id?, app_id?, env?, wait=45)` | Run a YAML list of Maestro steps (the server adds the `appId` header) or existing flow files. Returns `passed` or a short error, with a `run_id`. |
+| `run_flow(commands? \| files?, device_id?, app_id?, env?, wait=45)` | Run a YAML list of Maestro steps (the server adds the `appId` header) or existing flow files. Returns `passed` or the failing flow's reason, a `run_id`, and the resulting `screen`. Batch predictable steps into one call. |
 | `run_goal(goal, expect_text?, device_id?, app_id?, values?, max_steps?, wait=45)` | Execute the bounded loop; return status, run ID, step count, duration, and reported model usage. |
-| `run_report(run_id, last_steps=3, wait=0)` | Retrieve a compact summary, up to ten recent decisions, and the local exported flow path. `wait` blocks up to 110 s for a running run. |
+| `run_report(run_id, last_steps=3, wait=0)` | Retrieve a compact summary, up to ten recent decisions, the full error text, and the local exported flow path. `wait` blocks for a running run (values above 110 s are capped). |
 | `run_cancel(run_id)` | Stop a running flow or goal, restart Maestro so its driver stops, and free the device. |
 
 Example agent call when defaults are configured:
@@ -97,10 +97,14 @@ configuration must already know those field IDs.
 
 Without `device_id` or a configured default, tools use the single connected device and
 return an error when several are connected. Direct tools share the run lock, so they
-return `busy` (with the active `run_id`) while a flow or goal runs. Every device action
-first checks for an iOS Maestro driver that another process started on that simulator
-(for example a separately registered Maestro MCP server or `maestro test`) and returns
-`busy` naming its pid, because two drivers on one simulator break both.
+return `busy` (with the active `run_id`) while a flow or goal runs.
+
+Only one Maestro-driven iOS simulator can run at a time on a Mac. Maestro's MCP server
+(2.10.0) always serves its iOS driver on `127.0.0.1:22087`, and simulators share the Mac's
+loopback, so a second driver on another simulator gets commands meant for the first. Every
+iOS device action therefore first checks for a Maestro driver that another process started
+(a separately registered Maestro MCP server, `maestro test`, another agent session) and
+returns `busy` naming its pid. Run comparisons between Maestro-based agents one at a time.
 
 Normal tool output contains no hierarchy, screenshots, generated YAML, or full step log.
 Each result has one text block, without a duplicate `structuredContent` payload. Details

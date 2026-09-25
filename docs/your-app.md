@@ -139,9 +139,10 @@ With device/app defaults configured, ask the agent to call:
 
 The tool is `run_goal`. Follow failures with `run_report` using the returned `run_id`.
 Runs longer than 45 seconds return `running`; call `run_report(run_id, wait=60)` for the
-outcome, or `run_cancel`. Use one controller at a time on the simulator: jev refuses device
-actions while another Maestro driver is attached, and `setup` warns about separately
-registered Maestro MCP servers. Keep existing Maestro YAML tests for
+outcome, or `run_cancel`. Use one Maestro controller at a time on the whole Mac, not just per simulator: Maestro's
+iOS driver always uses port 22087, so parallel agents on separate simulators cross-talk.
+jev refuses device actions while another Maestro driver runs, and `setup` warns about
+separately registered Maestro MCP servers. Keep existing Maestro YAML tests for
 deterministic regression checks while evaluating this goal-driven path.
 
 ## Diagnose a failure
