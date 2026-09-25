@@ -1,6 +1,7 @@
 """Local Laya policy with a single choice over observed, executable actions."""
 
 import json
+import os
 from urllib.parse import urlsplit
 
 from .policy import validate_answer
@@ -93,11 +94,14 @@ class Laya:
         self.client = client
         self.url = url
         self.min_confidence = min_confidence
+        # Other systemone-compatible local servers (e.g. simple-jev) require a model field.
+        self.model = os.getenv("LAYA_MODEL", DEFAULT_MODEL)
 
     async def choose(self, body):
         choices = action_choices(body)
+        request = {"model": self.model, **compact_request(body)}
         response = await self.client.post(
-            self.url + "/v1/systemone", json=compact_request(body), follow_redirects=False
+            self.url + "/v1/systemone", json=request, follow_redirects=False
         )
         response.raise_for_status()
         data = response.json()
