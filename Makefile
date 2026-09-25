@@ -5,8 +5,16 @@ SHELL := /bin/bash
 
 LAYA_HOME := $(HOME)/Library/Application Support/jev-mobile/laya
 LAYA_URL ?= http://127.0.0.1:8081
+QWEN_URL ?= http://127.0.0.1:8082
 AGENT := com.jev-mobile.laya
 PLIST := $(HOME)/Library/LaunchAgents/$(AGENT).plist
+QWEN_AGENT := com.jev-mobile.qwen
+QWEN_PLIST := $(HOME)/Library/LaunchAgents/$(QWEN_AGENT).plist
+QWEN_MODEL := mlx-community/Qwen3.5-4B-MLX-4bit
+QWEN_CACHE := models--mlx-community--Qwen3.5-4B-MLX-4bit
+# Local decision model jev uses for run_goal: laya (port 8081) or qwen (port 8082).
+MODEL ?= laya
+MODEL_URL = $(if $(filter qwen,$(MODEL)),$(QWEN_URL),$(LAYA_URL))
 DOMAIN := gui/$(shell id -u)
 VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml)
 WHEEL := dist/jev_mobile-$(VERSION)-py3-none-any.whl
@@ -18,7 +26,8 @@ CLIENT ?=
 FLOWS ?= maestro
 TAGS ?= smoke
 
-.PHONY: help check install install-cli laya laya-status laya-logs doctor devices apps \
+.PHONY: help check install install-cli laya laya-status laya-logs qwen qwen-status qwen-logs \
+	qwen-uninstall doctor devices apps \
 	register connect workflow test uninstall laya-uninstall
 
 help: ## Show this help
@@ -35,6 +44,7 @@ help: ## Show this help
 	@echo "                 CLIENT=claude|codex|cursor|json (default: all detected)"
 	@echo "register/connect ask per Claude config (~/.claude.json, ~/.claude-*); YES=1 skips"
 	@echo "workflow options: PROJECT=app repo, APP=bundle id, FLOWS=maestro, TAGS=smoke"
+	@echo "register/connect: MODEL=qwen uses the Qwen service (make qwen) for run_goal"
 
 check: ## Check prerequisites (uv, Xcode, Java, Maestro)
 	@echo "Checking prerequisites:"
@@ -69,6 +79,34 @@ laya: ## Install or update the background Laya model service (Apple Silicon)
 		printf .; sleep 2; \
 	done; echo; echo "Laya did not become ready; run: make laya-logs"; exit 1
 
+qwen: laya ## Install or update the Qwen3.5-4B decision service on port 8082 (2.8 GB)
+	@mkdir -p "$(LAYA_HOME)/cache/hub"
+	@# Reuse a copy already in the default Hugging Face cache (APFS clone, no extra space).
+	@[ -d "$(LAYA_HOME)/cache/hub/$(QWEN_CACHE)" ] || [ ! -d "$(HOME)/.cache/huggingface/hub/$(QWEN_CACHE)" ] \
+		|| cp -Rc "$(HOME)/.cache/huggingface/hub/$(QWEN_CACHE)" "$(LAYA_HOME)/cache/hub/"
+	@echo "Downloading the pinned Qwen model if needed (~2.8 GB, first time only)..."
+	@HF_HOME="$(LAYA_HOME)/cache" HF_HUB_DISABLE_XET=1 "$(LAYA_HOME)/.venv/bin/python" -c \
+		"from huggingface_hub import snapshot_download as d; from jev_mobile.laya_server import QWEN_MODEL as m, QWEN_REVISION as r; d(m, revision=r)" >/dev/null
+	-@launchctl bootout "$(DOMAIN)/$(QWEN_AGENT)" 2>/dev/null
+	@sed "s|@LAYA_HOME@|$(LAYA_HOME)|g" scripts/qwen-agent.plist > "$(QWEN_PLIST)"
+	launchctl bootstrap "$(DOMAIN)" "$(QWEN_PLIST)"
+	@printf "Waiting for Qwen to load"
+	@for i in $$(seq 90); do \
+		curl -fs "$(QWEN_URL)/health" | grep -q '"ready"' && { echo " ready"; exit 0; }; \
+		printf .; sleep 2; \
+	done; echo; echo "Qwen did not become ready; run: make qwen-logs"; exit 1
+	@echo "Use it for run_goal: make register MODEL=qwen"
+
+qwen-status: ## Show whether the Qwen service is ready
+	@curl -fs "$(QWEN_URL)/health" && echo || echo "Qwen is not responding at $(QWEN_URL)"
+
+qwen-logs: ## Show recent Qwen service logs
+	@tail -n 40 "$(LAYA_HOME)/qwen.stderr.log" "$(LAYA_HOME)/qwen.stdout.log"
+
+qwen-uninstall: ## Stop and remove the Qwen service (keeps the shared environment and cache)
+	-launchctl bootout "$(DOMAIN)/$(QWEN_AGENT)" 2>/dev/null
+	rm -f "$(QWEN_PLIST)"
+
 laya-status: ## Show whether the Laya service is ready
 	@curl -fs "$(LAYA_URL)/health" && echo || echo "Laya is not responding at $(LAYA_URL)"
 
@@ -91,12 +129,12 @@ apps: ## List your installed apps' bundle IDs on booted simulators
 
 register: ## Register the MCP server user-wide with every detected agent and Claude config
 	@command -v jev-mobile >/dev/null || { echo "Run make install-cli first"; exit 1; }
-	jev-mobile setup --global $(if $(YES),--yes) $(foreach c,$(CLIENT),--client $(c))
+	jev-mobile setup --global --laya-url "$(MODEL_URL)" $(if $(YES),--yes) $(foreach c,$(CLIENT),--client $(c))
 
 connect: ## Register the MCP server with your AI agents for PROJECT
 	@command -v jev-mobile >/dev/null || { echo "Run make install first"; exit 1; }
 	cd "$(patsubst ~%,$(HOME)%,$(PROJECT))" && jev-mobile setup \
-		$(if $(APP),--app-id "$(APP)") $(if $(DEVICE),--device "$(DEVICE)") \
+		--laya-url "$(MODEL_URL)" $(if $(APP),--app-id "$(APP)") $(if $(DEVICE),--device "$(DEVICE)") \
 		$(if $(YES),--yes) $(foreach c,$(CLIENT),--client $(c))
 
 workflow: ## Add the sim-tester agent and a pre-push flow run to PROJECT (see docs/workflow.md)

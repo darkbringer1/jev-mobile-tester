@@ -164,6 +164,155 @@ CASES = [
 ]
 
 
+# The Qwen probe's worksy-shaped cases (examples/qwen_probe.py), rebuilt as jev screens so
+# they go through the real request path. Offered actions come from the screen, not a list.
+PROBE_CASES = [
+    (
+        "probe: overtime form next",
+        screen(
+            "Back",
+            "Overtime",
+            "Overtime Details",
+            "Save Draft",
+            "Date",
+            "Sep 30 2026",
+            "Shift",
+            "Afternoon Shift",
+            "Compensation Type",
+            "Next",
+        ),
+        "Tap Next on the Overtime form",
+        [],
+        {},
+        "Tap Next",
+    ),
+    (
+        "probe: open OT-100",
+        screen(
+            "Back", "Self Overtime", "All", "Draft", "Pending", "OT-101", "OT-100", "New Request"
+        ),
+        "Open request OT-100's detail",
+        [],
+        {},
+        "Tap OT-100",
+    ),
+    (
+        "probe: open listing from hub",
+        screen(
+            "Back",
+            "Time",
+            "Incomplete Entry",
+            "Change Shift",
+            "Absent",
+            "Short Hours",
+            "Self Overtime",
+            "Planned Overtime",
+        ),
+        "Open the Self Overtime listing",
+        [],
+        {},
+        "Tap Self Overtime",
+    ),
+    (
+        "probe: read a value",
+        screen(
+            "Back",
+            "OT-100",
+            "Edit",
+            "Status",
+            "Draft",
+            "Compensation Method",
+            "Overtime Pay",
+            "Reason",
+            "Heavy Workload",
+        ),
+        "Read the Compensation Method of OT-100",
+        [],
+        {},
+        "Done: goal complete",
+    ),
+    (
+        "probe: login empty",
+        screen(
+            "Let's get started",
+            "EMAIL",
+            "QR",
+            ("Email", "email"),
+            ("Password", "password"),
+            "Remember me",
+            "LOGIN",
+            "Forgot Password?",
+        ),
+        "Log in with the mock account",
+        [],
+        {"email": "user@example.com", "password": "password123"},
+        'Fill Email with "user@example.com"',
+    ),
+    (
+        "probe: login filled",
+        screen(
+            "Let's get started",
+            ("Email", "email"),
+            ("Password", "password"),
+            "Remember me",
+            "LOGIN",
+            "Forgot Password?",
+        ),
+        "Log in with the mock account",
+        [
+            {
+                "operation": "TYPE_TEXT",
+                "action": 'Fill Email with "user@example.com"',
+                "status": "executed",
+            },
+            {
+                "operation": "TYPE_TEXT",
+                "action": 'Fill Password with "password123"',
+                "status": "executed",
+            },
+        ],
+        {"email": "user@example.com", "password": "password123"},
+        "Tap LOGIN",
+    ),
+    (
+        "probe: payroll via menu",
+        screen(
+            "Hello, Alex",
+            "Calendar",
+            "OCR Claim",
+            "Leave",
+            "My Payslip",
+            "Clock In",
+            "Notice Board",
+            "Quick Action",
+            "Menu",
+        ),
+        "Open the Payroll page from the dashboard",
+        [],
+        {},
+        "Tap Menu",
+    ),
+    (
+        "probe: payroll tile",
+        screen(
+            "Hello, Alex",
+            "Calendar",
+            "Leave",
+            "My Payslip",
+            "Clock In",
+            "Notice Board",
+            "My Payroll",
+            "Menu",
+        ),
+        "Open My Payroll",
+        [],
+        {},
+        "Tap My Payroll",
+    ),
+]
+CASES += PROBE_CASES
+
+
 async def evaluate(name, url, client):
     model = Laya(client, 0.0, url)
     rows = []

@@ -1,7 +1,7 @@
 # Qwen3.5-4B as a local decision model — probe results
 
-Status: wired in as a local runtime (`jev-mobile laya-serve --runtime qwen`). Not yet
-calibrated or measured live; see "Using it" and "Next" below.
+Status: installed as a local decision service (`make qwen`, port 8082) and selectable for
+`run_goal` (`make register MODEL=qwen`). Not yet calibrated or measured live; see "Next".
 
 ## Why
 
@@ -57,31 +57,34 @@ jev client doesn't change. The model is pinned to revision `32f3e8e` and needs t
 `laya` extra (which now includes `mlx-lm`):
 
 ```sh
-uv sync --locked --extra laya
-HF_HUB_DISABLE_XET=1 uv run --extra laya hf download mlx-community/Qwen3.5-4B-MLX-4bit  # once, 2.8 GB
-uv run --extra laya jev-mobile laya-serve --runtime qwen --port 8082
+make qwen                   # background service on 127.0.0.1:8082 (reuses ~/.cache copy)
+make register MODEL=qwen    # jev's run_goal uses it, in every client config
+make register               # back to Laya (8081)
 ```
 
-Point jev at it: `JEV_BACKEND=laya LAYA_URL=http://127.0.0.1:8082`, e.g. with
-`jev-mobile setup --laya-url http://127.0.0.1:8082`. `run_goal` then decides locally
-with Qwen. Laya's service on 8081 keeps running unchanged.
+`make qwen` shares Laya's environment and offline cache under
+`~/Library/Application Support/jev-mobile/laya/`; `make qwen-status`, `qwen-logs`, and
+`qwen-uninstall` manage it. For development without the service:
+`uv run --extra laya jev-mobile laya-serve --runtime qwen --port 8082`.
 
-## Wired-in comparison (examples/compare_backends.py, 12 other hand-written cases)
+## Wired-in comparison (examples/compare_backends.py, 20 hand-written cases)
 
-These cases go through jev's real request path (`request_body` → `compact_request`), not
-the probe's own prompt.
+12 generic cases plus the 8 probe cases above (without the no-history variant, since jev
+always sends history), all through jev's real request path (`request_body` →
+`compact_request`), not the probe's own prompt. Installed services, 2026-09-25:
 
 | | Correct | Median per decision | Right when confidence ≥ 0.5 |
 |---|---|---|---|
-| Laya | 5/12 | 12 ms | 5 of 9 |
-| Qwen3.5-4B | **8/12** | 61 ms | **7 of 8** |
+| Laya | 10/20 | 13 ms | 8 of 14 |
+| Qwen3.5-4B | **15/20** | 84 ms | **14 of 16** |
 
 Qwen got the sequences Laya fails: moving on after a tap (General → About), recognising a
 finished goal, tapping Sign In once both fields were filled, and confirming a dialog.
-Misses: scrolling toward an off-screen target (chose Done, 0.46), a value already on
-screen (0.30), a tab choice (0.42), and one confident miss: on an empty login form it
-chose "Tap Sign In" (0.74) instead of filling Email. jev's request doesn't say the fields
-are empty (targets are listed only as choices), so the next step is a prompt fix.
+Misses below the gate (would escalate): scrolling toward an off-screen target (chose Done,
+0.46), a value already on screen (0.30), a tab choice (0.42). Two confident misses, both
+known weak spots: a requested value on screen (tapped OT-100, 0.93, instead of Done), and
+an empty login form (tapped Sign In, 0.74, instead of filling Email; jev's request doesn't
+say the fields are empty because targets are listed only as choices).
 
 ## Next
 
