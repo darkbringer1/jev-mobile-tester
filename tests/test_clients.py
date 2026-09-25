@@ -57,3 +57,18 @@ def test_register_claude_targets_config_dir(tmp_path, monkeypatch):
     register_claude(SPEC, True, None)
     assert [env.get("CLAUDE_CONFIG_DIR") for _, env in calls] == [str(tmp_path)] * 2 + [None] * 2
     assert calls[1][0][:6] == ["claude", "mcp", "add", "jev-mobile", "-s", "user"]
+
+
+def test_rival_maestro_servers_are_reported(tmp_path, monkeypatch):
+    monkeypatch.setattr(clients.Path, "home", lambda: tmp_path)
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    config = {
+        "mcpServers": {
+            "jev-mobile": {"command": "/bin/jev-mobile", "args": ["--maestro", "maestro"]}
+        },
+        "projects": {
+            "/code/app": {"mcpServers": {"maestro": {"command": "maestro", "args": ["mcp"]}}}
+        },
+    }
+    (tmp_path / ".claude.json").write_text(json.dumps(config))
+    assert clients.rival_maestro_servers() == ["~/.claude.json: maestro (/code/app)"]

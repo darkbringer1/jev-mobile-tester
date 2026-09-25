@@ -141,8 +141,30 @@ def register_cursor(spec, global_scope):
     return f"Cursor ({path})"
 
 
+def rival_maestro_servers():
+    """Separate Maestro MCP registrations; their driver would fight jev's on a simulator."""
+    found = []
+    for config in claude_configs():
+        path = (config or Path.home()) / ".claude.json"
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        scopes = [("all projects", data.get("mcpServers", {}))]
+        scopes += [(p, v.get("mcpServers", {})) for p, v in data.get("projects", {}).items()]
+        for where, servers in scopes:
+            for name, server in servers.items():
+                command = " ".join([server.get("command", ""), *server.get("args", [])])
+                if name != NAME and re.search(r"(^|/)maestro\b", command):
+                    found.append(f"{config_label(config)}: {name} ({where})")
+    return found
+
+
 def warnings(args):
-    problems = []
+    problems = [
+        f"separate Maestro MCP server {rival}; remove it with `claude mcp remove`"
+        for rival in rival_maestro_servers()
+    ]
     if not shutil.which(args.maestro):
         problems.append(f"Maestro executable not found: {args.maestro}")
     if args.backend == "laya":

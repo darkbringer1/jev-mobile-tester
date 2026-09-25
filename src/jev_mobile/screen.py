@@ -64,12 +64,14 @@ def parse_screen(payload: str) -> Screen:
     elements = []
     for node in nodes:
         bounds = str(node.get("b", node.get("bounds", "")))
-        coords = re.fullmatch(r"\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]", bounds)
-        if not coords:
-            continue
-        x1, y1, x2, y2 = map(int, coords.groups())
-        if x2 <= x1 or y2 <= y1 or x2 <= 0 or y2 <= 0:
-            continue
+        number = r"(-?\d+(?:\.\d+)?)"
+        coords = re.fullmatch(rf"\[{number},{number}\]\[{number},{number}\]", bounds)
+        if coords:
+            x1, y1, x2, y2 = map(float, coords.groups())
+            if x2 <= x1 or y2 <= y1 or x2 <= 0 or y2 <= 0:
+                continue
+        # Maestro keeps labelled nodes without usable bounds (e.g. computed a11y values);
+        # keep them as readable context, but never as tap targets.
         label = str(
             node.get("a11y")
             or node.get("accessibility")
@@ -84,7 +86,7 @@ def parse_screen(payload: str) -> Screen:
         editable = any(part in role.lower() for part in ("textfield", "textview", "edittext"))
         # Unlabelled nodes remain context only unless they have a stable resource ID.
         operations = []
-        if flag(node.get("enabled"), True) and (label or rid):
+        if coords and flag(node.get("enabled"), True) and (label or rid):
             operations.append("TAP")
             if editable:
                 operations.append("TYPE_TEXT")

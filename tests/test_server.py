@@ -114,7 +114,7 @@ def test_timeout_stops_loop_and_persists_result(tmp_path):
     result = asyncio.run(svc.run("Open Settings"))
     assert result["status"] == "timeout"
     assert len(svc.maestro.calls) == 1
-    assert svc.report(result["run_id"])["status"] == "timeout"
+    assert asyncio.run(svc.report(result["run_id"]))["status"] == "timeout"
 
 
 def test_concurrent_run_is_busy_and_cancellation_releases_lock(tmp_path):
@@ -127,16 +127,30 @@ def test_concurrent_run_is_busy_and_cancellation_releases_lock(tmp_path):
                 await asyncio.Event().wait()
 
         svc = service(tmp_path, WaitingModel())
+        svc.maestro.resets = 0
+
+        async def reset():
+            svc.maestro.resets += 1
+
+        svc.maestro.reset = reset
         first = asyncio.create_task(svc.run("Wait"))
         await entered.wait()
-        assert await svc.run("Other goal") == {"status": "busy"}
-        assert await svc.devices() == {"status": "busy"}
+        run_id = next(iter(svc.jobs))
+        assert await svc.run("Other goal") == {"status": "busy", "run_id": run_id}
+        assert await svc.devices() == {"status": "busy", "run_id": run_id}
+        # An abandoned tool call leaves the run going; its result stays retrievable.
         first.cancel()
         with pytest.raises(asyncio.CancelledError):
             await first
+        assert svc.lock.locked()
+        assert (await svc.report(run_id))["status"] == "running"
+        cancelled = await svc.cancel(run_id)
+        assert cancelled["status"] == "cancelled"
+        assert svc.maestro.resets == 1  # Maestro restarted so its driver stops too.
         assert not svc.lock.locked()
         report = json.loads(next(tmp_path.glob("*/result.json")).read_text())
         assert report["status"] == "cancelled"
+        assert (await svc.cancel(run_id))["status"] == "not_running"
 
     asyncio.run(exercise())
 
@@ -144,10 +158,11 @@ def test_concurrent_run_is_busy_and_cancellation_releases_lock(tmp_path):
 def test_report_is_bounded_and_rejects_path_traversal(tmp_path):
     svc = service(tmp_path, Model("TAP", "TAP", "DONE"))
     result = asyncio.run(svc.run("Open Settings"))
-    assert len(svc.report(result["run_id"], 1)["recent"]) == 1
-    assert svc.report(result["run_id"], 0)["recent"] == []
-    assert svc.report("../../.env")["status"] == "invalid"
-    assert svc.report(result["run_id"], 11)["status"] == "invalid"
+    assert len(asyncio.run(svc.report(result["run_id"], 1))["recent"]) == 1
+    assert asyncio.run(svc.report(result["run_id"], 0))["recent"] == []
+    assert asyncio.run(svc.report("../../.env"))["status"] == "invalid"
+    assert asyncio.run(svc.report(result["run_id"], 11))["status"] == "invalid"
+    assert asyncio.run(svc.report(result["run_id"], wait=500))["status"] == "invalid"
 
 
 def test_invalid_literals_rejected_before_device_actions(tmp_path):
@@ -171,7 +186,13 @@ def test_full_mcp_protocol_no_duplicate_payload(tmp_path):
         async with create_connected_server_and_client_session(create_server(service=svc)) as client:
             tools = (await client.list_tools()).tools
             assert {t.name for t in tools} == {
-                "devices", "screen", "screenshot", "run_flow", "run_goal", "run_report"
+                "devices",
+                "screen",
+                "screenshot",
+                "run_flow",
+                "run_goal",
+                "run_report",
+                "run_cancel",
             }
             assert all(t.outputSchema is None for t in tools)
             devices = await client.call_tool("devices", {})
@@ -219,7 +240,10 @@ def test_screen_is_compact_and_omits_empty_fields(tmp_path):
 def test_run_flow_wraps_commands_with_default_app(tmp_path):
     svc = service(tmp_path)
     result = asyncio.run(svc.run_flow('- tapOn: "General"\n- back'))
-    assert result == {"status": "passed", "steps": 2}
+    assert result.keys() == {"status", "run_id", "ms", "steps"}
+    assert (result["status"], result["steps"]) == ("passed", 2)
+    report = json.loads((tmp_path / result["run_id"] / "result.json").read_text())
+    assert report["commands"] == [{"tapOn": "General"}, "back"]
     assert svc.maestro.calls == [("com.example.app", [{"tapOn": "General"}, "back"])]
 
 
@@ -246,3 +270,64 @@ def test_single_connected_device_is_used_by_default(tmp_path):
     svc = MobileService(Device(), Model(), tmp_path, app_id="com.example.app")
     assert asyncio.run(svc.run("Open"))["status"] == "done_unverified"
     assert asyncio.run(svc.screen())["device"] == "sim"
+
+
+def test_long_flow_returns_run_id_and_report_waits_for_result(tmp_path):
+    async def exercise():
+        release = asyncio.Event()
+
+        class SlowDevice(Device):
+            async def run(self, device_id, commands):
+                await release.wait()
+
+        svc = MobileService(SlowDevice(), None, tmp_path, device_id="sim", app_id="app")
+        pending = await svc.run_flow("- back", wait=0)
+        assert pending["status"] == "running"
+        assert (await svc.report(pending["run_id"], wait=0))["status"] == "running"
+        asyncio.get_running_loop().call_later(0.05, release.set)
+        done = await svc.report(pending["run_id"], wait=5)
+        assert done["status"] == "passed"
+        assert not svc.lock.locked()
+
+    asyncio.run(exercise())
+
+
+def test_foreign_maestro_driver_refuses_device_actions(tmp_path):
+    svc = service(tmp_path)
+
+    async def foreign(device):
+        return [4242]
+
+    svc.maestro.foreign_drivers = foreign
+    for call in (svc.screen(), svc.run_flow("- back"), svc.run("Open")):
+        result = asyncio.run(call)
+        assert result["status"] == "busy"
+        assert "4242" in result["error"]
+    assert svc.maestro.calls == []
+    assert not svc.lock.locked()
+
+
+def test_raw_screen_returns_maestro_hierarchy(tmp_path):
+    svc = service(tmp_path)
+
+    async def inspect(device):
+        return '{"elements": []}'
+
+    svc.maestro.inspect = inspect
+    assert asyncio.run(svc.screen(raw=True)) == {"device": "sim", "raw": '{"elements": []}'}
+
+
+def test_low_confidence_step_is_reported_with_candidates(tmp_path):
+    from jev_mobile.policy import LowConfidence
+
+    class Unsure:
+        async def choose(self, body):
+            raise LowConfidence(0.19, 0.5, {"Tap Next": 0.19, "Tap Back": 0.1, "Blocked": 0.05})
+
+    svc = service(tmp_path, Unsure())
+    result = asyncio.run(svc.run("Tap Next"))
+    assert result["status"] == "error"
+    assert "Tap Next 0.19" in result["error"]
+    recent = asyncio.run(svc.report(result["run_id"]))["recent"]
+    assert recent[-1]["status"] == "low_confidence"
+    assert recent[-1]["candidates"][0] == {"action": "Tap Next", "p": 0.19}

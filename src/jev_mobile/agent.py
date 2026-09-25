@@ -4,7 +4,7 @@ import asyncio
 import time
 from dataclasses import dataclass, field
 
-from .policy import request_body
+from .policy import LowConfidence, request_body
 from .screen import literal_regex, selector
 
 
@@ -64,7 +64,20 @@ async def run_agent(
             timings["observe_ms"] = (time.perf_counter() - phase) * 1000
             body = request_body(screen, goal, history, values)
             phase = time.perf_counter()
-            decision = await model.choose(body)
+            try:
+                decision = await model.choose(body)
+            except LowConfidence as error:
+                # Record what the model leaned toward; run_report surfaces it.
+                entry = {
+                    "step": step + 1,
+                    "status": "low_confidence",
+                    "confidence": error.confidence,
+                    "candidates": [{"action": n, "p": round(p, 3)} for n, p in error.candidates],
+                }
+                result.steps.append(entry)
+                if emit:
+                    emit(entry)
+                raise
             timings["decision_ms"] = (time.perf_counter() - phase) * 1000
             entry = {"step": step + 1, **decision, "timings": timings}
             operation = decision["operation"]

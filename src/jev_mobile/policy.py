@@ -69,6 +69,18 @@ def request_body(screen: Screen, goal: str, history: list, values: dict[str, str
     }
 
 
+class LowConfidence(ValueError):
+    """A valid answer below the threshold; keeps the leading choices for diagnosis."""
+
+    def __init__(self, confidence, threshold, probabilities):
+        self.confidence = confidence
+        self.candidates = sorted(probabilities.items(), key=lambda item: -item[1])[:3]
+        top = ", ".join(f"{name} {p:.2f}" for name, p in self.candidates)
+        super().__init__(
+            f"Confidence {confidence:.3f} is below threshold {threshold:.3f}; top: {top}"
+        )
+
+
 def validate_answer(answer: dict, criteria: dict, min_confidence: float) -> str:
     try:
         choice = answer["choice"]
@@ -87,7 +99,7 @@ def validate_answer(answer: dict, criteria: dict, min_confidence: float) -> str:
     if not valid:
         raise ValueError("Invalid Jev response; no action executed")
     if confidence < min_confidence:
-        raise ValueError(f"Confidence {confidence:.3f} is below threshold {min_confidence:.3f}")
+        raise LowConfidence(confidence, min_confidence, probabilities)
     return choice
 
 

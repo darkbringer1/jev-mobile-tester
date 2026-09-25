@@ -33,8 +33,8 @@ uv run --extra laya jev-mobile serve --backend laya \
 If your agent is opened in your app's repository, keep `--directory` pointing to the
 separate `jev-mobile` checkout. Use [the app guide](your-app.md) to find the bundle ID
 and supply text-field values. The server has no deadline by default, because flows can wait
-on slow app network calls; raise the client's tool timeout to match. Do not run the same goal
-concurrently through raw Maestro.
+on slow app network calls; long runs return a `run_id` instead of outliving the client's
+tool timeout. Do not register a separate Maestro MCP server next to this one.
 
 ### Hosted Jev
 
@@ -64,11 +64,12 @@ Do not run another controller against the same simulator during a goal.
 | Tool | Use |
 | --- | --- |
 | `devices()` | Connected devices only; omit when a default is configured. |
-| `screen(device_id?)` | Compact visible elements as `{text, id, value}`; no bounds or raw hierarchy. |
+| `screen(device_id?, raw?)` | Compact visible elements as `{text, id, value}`. `raw` returns Maestro's hierarchy, only to debug a missing element. |
 | `screenshot(device_id?)` | Image of the current screen. Large; prefer `screen`. |
-| `run_flow(commands? \| files?, device_id?, app_id?, env?)` | Run a YAML list of Maestro steps (the server adds the `appId` header) or existing flow files. Returns `passed` or a short error. |
-| `run_goal(goal, expect_text?, device_id?, app_id?, values?, max_steps?)` | Execute the bounded loop; return status, run ID, step count, duration, and reported model usage. |
-| `run_report(run_id, last_steps=3)` | Retrieve a compact summary, up to ten recent decisions, and the local exported flow path. |
+| `run_flow(commands? \| files?, device_id?, app_id?, env?, wait=45)` | Run a YAML list of Maestro steps (the server adds the `appId` header) or existing flow files. Returns `passed` or a short error, with a `run_id`. |
+| `run_goal(goal, expect_text?, device_id?, app_id?, values?, max_steps?, wait=45)` | Execute the bounded loop; return status, run ID, step count, duration, and reported model usage. |
+| `run_report(run_id, last_steps=3, wait=0)` | Retrieve a compact summary, up to ten recent decisions, and the local exported flow path. `wait` blocks up to 110 s for a running run. |
+| `run_cancel(run_id)` | Stop a running flow or goal, restart Maestro so its driver stops, and free the device. |
 
 Example agent call when defaults are configured:
 
@@ -84,7 +85,8 @@ Illustrative response (not a measured live Jev run):
 
 `verified` means the specified Maestro text assertions passed after the model chose DONE.
 Without assertions, DONE returns `done_unverified`. Other outcomes include `blocked`,
-`step_limit`, `error`, `timeout`, `busy`, `invalid`, and `unavailable`. Agents must read
+`step_limit`, `error`, `timeout`, `running`, `cancelled`, `busy`, `invalid`, and
+`unavailable`. Agents must read
 `status`; receiving a tool response alone does not mean the goal succeeded.
 
 Field input uses `values`, a map of exact accessibility/resource IDs to literal text.
@@ -94,8 +96,11 @@ configuration must already know those field IDs.
 ## Output and execution limits
 
 Without `device_id` or a configured default, tools use the single connected device and
-return an error when several are connected. Direct tools share the goal lock, so they
-return `busy` during a goal run.
+return an error when several are connected. Direct tools share the run lock, so they
+return `busy` (with the active `run_id`) while a flow or goal runs. Every device action
+first checks for an iOS Maestro driver that another process started on that simulator
+(for example a separately registered Maestro MCP server or `maestro test`) and returns
+`busy` naming its pid, because two drivers on one simulator break both.
 
 Normal tool output contains no hierarchy, screenshots, generated YAML, or full step log.
 Each result has one text block, without a duplicate `structuredContent` payload. Details
@@ -103,13 +108,19 @@ live under `~/Library/Application Support/jev-mobile/runs/<run_id>/` (or `--outp
 `run_report` only when the extra context is useful. Local files can contain entered values.
 
 One persistent Maestro connection and one HTTP client are reused. Runs are serialized;
-concurrent goals get `busy`. Each goal resumes its app without clearing state or
+concurrent runs get `busy`. Each goal resumes its app without clearing state or
 implicitly stopping it. The default limit is 30 decisions (maximum 100) with no time
-deadline. Set one with `--timeout SECONDS` if you want calls bounded, and keep the agent
-client's tool timeout higher. Cancelling the tool call stops the run and frees the lock.
-No polling is needed: one tool call waits for the outcome.
+deadline; set one with `--timeout SECONDS` if you want runs bounded.
 
-Cancellation stops the local loop and saves a cancelled report. A command already sent
+`run_flow` and `run_goal` run in the background. A call waits up to `wait` seconds
+(default 45, below common client tool timeouts) and returns the outcome, or
+`{"status":"running","run_id":...}`. Then call `run_report(run_id, wait=60)` until the
+status changes. An abandoned tool call does not stop the run; `run_cancel` does.
+While waiting, the server sends MCP progress notifications for clients that use them.
+
+Cancellation and `--timeout` restart the Maestro process, because Maestro keeps executing
+a flow after its caller gives up; the restart also ends its xcodebuild driver. The next
+call starts a fresh driver. Cancellation saves a cancelled report. A command already sent
 to the device may have taken effect; cancellation is not rollback. Retries are new runs,
 so inspect failures before repeating goals that change data.
 

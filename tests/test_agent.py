@@ -224,3 +224,36 @@ def test_nested_native_row_and_label_share_a_target():
     )
     assert selector(screen.elements[0], screen) == {"text": r"\QAbout\E"}
     assert selector(screen.elements[1], screen) == {"text": r"\QAbout\E"}
+
+
+def test_driver_detection_separates_own_and_foreign_processes(monkeypatch):
+    from jev_mobile import maestro
+
+    driver = "xcodebuild test-without-building -xctestrun /t/maestro-driver-ios.xctestrun"
+    rows = [
+        (10, 1, "jev-mobile serve"),
+        (11, 10, "java maestro mcp"),
+        (12, 11, driver + " -destination id=SIM"),
+        (20, 1, "java maestro mcp"),
+        (21, 20, driver + " -destination id=SIM"),
+        (22, 20, driver + " -destination id=OTHER"),
+        (30, 1, "xcodebuild build"),
+    ]
+    monkeypatch.setattr(maestro, "process_table", lambda: rows)
+    assert maestro.descendants(rows, 10) == {11, 12}
+    assert maestro.foreign_drivers("SIM", root=10) == [21]
+    assert maestro.foreign_drivers("OTHER", root=10) == [22]
+
+
+@pytest.mark.parametrize("leaf", [{}, {"b": "[300.5,500][340,520]"}, {"b": ""}])
+def test_labelled_leaf_without_integer_bounds_stays_visible(leaf):
+    total = {"a11y": "Total", "b": "[16,500][80,520]"}
+    doc = {"elements": [{"b": "[0,480][390,540]", "c": [total, {"a11y": "1h", **leaf}]}]}
+    elements = {e.label: e for e in parse_screen(json.dumps(doc)).elements}
+    assert "1h" in elements
+    assert ("TAP" in elements["1h"].operations) == bool(leaf.get("b"))
+
+
+def test_zero_size_leaf_is_dropped():
+    doc = {"elements": [{"a11y": "Hidden", "b": "[10,10][10,20]"}]}
+    assert parse_screen(json.dumps(doc)).elements == []

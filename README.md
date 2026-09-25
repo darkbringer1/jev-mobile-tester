@@ -33,11 +33,13 @@ Jev Mobile reads the screen, gives the selected model a list of possible actions
 action through Maestro, and repeats. You can supply final text checks so Maestro
 verifies the result. The run also leaves behind a trace and an exported Maestro YAML flow.
 
-The MCP interface has just three tools:
+The MCP interface has a few compact tools:
 
-- **`devices`** — find a connected device.
+- **`devices`**, **`screen`**, **`screenshot`** — find a device and read what is on it.
+- **`run_flow`** — run exact Maestro steps.
 - **`run_goal`** — hand over a task and get a compact outcome.
-- **`run_report`** — look at the recent steps if you need to debug something.
+- **`run_report`** — wait for a long run, or look at recent steps to debug.
+- **`run_cancel`** — stop a run and its Maestro driver.
 
 The aim is to use less of your agent's context. I haven't measured total token savings
 yet. The server runs locally. Choose TypeSafe's hosted Jev API or a local Laya model.

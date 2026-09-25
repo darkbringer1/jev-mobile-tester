@@ -19,11 +19,13 @@ Never commit `.env`, `runs/`, credentials, or personal simulator screenshots.
 - `policy.py`: construct and validate Jev choices.
 - `laya.py`: compact readable action choices and loopback-only Laya HTTP policy.
 - `laya_server.py`: pinned MLX checkpoint, serialized GPU inference, and context checks.
-- `maestro.py`: own the persistent Maestro MCP session.
+- `maestro.py`: own the Maestro MCP process; restart it to stop in-flight work and its
+  driver, and detect drivers started by other Maestro processes.
 - `agent.py`: execute the bounded observation/decision/action loop.
 - `cli.py`: command inputs and artifacts.
 - `server.py`: compact MCP facade: direct `devices`, `screen`, `screenshot`, `run_flow`,
-  and goal-level `run_goal`, `run_report`.
+  and goal-level `run_goal`, `run_report`, `run_cancel`. Runs execute in the background and
+  return a `run_id` when they outlast `wait`.
 - `clients.py`: `jev-mobile setup` registration for Claude Code, Codex, and Cursor.
 
 Keep model output restricted to offered choices. Keep ordinary MCP responses compact

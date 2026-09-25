@@ -108,7 +108,7 @@ make connect APP=com.example.yourapp PROJECT=/path/to/your-app DEVICE=YOUR_SIMUL
 bundle ID for the project. Both configure Claude Code (every discovered config, asking
 for each), Codex, and Cursor when they are installed. Restart open agent
 sessions afterwards. `--device` is optional when exactly one device is connected.
-Remove any separate Maestro MCP server from those clients; `screen`, `screenshot`, and
+Remove any separate Maestro MCP server from those clients (`setup` lists them); `screen`, `screenshot`, and
 `run_flow` cover direct control. Manual alternative:
 
 Copy [examples/mcp-laya.json](../examples/mcp-laya.json) into the MCP configuration supported
@@ -138,8 +138,10 @@ With device/app defaults configured, ask the agent to call:
 ```
 
 The tool is `run_goal`. Follow failures with `run_report` using the returned `run_id`.
-The server has no deadline by default; give the client a long tool timeout too.
-Use one controller at a time on the simulator. Keep existing Maestro YAML tests for
+Runs longer than 45 seconds return `running`; call `run_report(run_id, wait=60)` for the
+outcome, or `run_cancel`. Use one controller at a time on the simulator: jev refuses device
+actions while another Maestro driver is attached, and `setup` warns about separately
+registered Maestro MCP servers. Keep existing Maestro YAML tests for
 deterministic regression checks while evaluating this goal-driven path.
 
 ## Diagnose a failure
