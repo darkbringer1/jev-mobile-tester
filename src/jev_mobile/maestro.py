@@ -220,15 +220,43 @@ class MaestroProcess:
     """One Maestro MCP process, started on first use and restarted to stop in-flight work.
 
     Maestro keeps executing a flow after its MCP caller gives up, so cancelling a run
-    must end the process (and the xcodebuild driver in its process group).
+    must end the process (and the xcodebuild driver in its process group). After `idle`
+    seconds without calls it also stops, freeing the one iOS driver port (22087) for
+    model-free runs such as `jev-mobile test` from a hook or CI.
     """
 
-    def __init__(self, command="maestro"):
+    def __init__(self, command="maestro", idle=None):
         self.command = command
+        self.idle = idle
         self.current = None
         self.task = None
         self.stop = None
         self.starting = asyncio.Lock()
+        self.active = 0
+        self.timer = None
+        self.releasing = None
+
+    @asynccontextmanager
+    async def use(self):
+        if self.timer:
+            self.timer.cancel()
+            self.timer = None
+        self.active += 1
+        try:
+            yield await self.client()
+        finally:
+            self.active -= 1
+            if not self.active and self.idle:
+                self.timer = asyncio.get_running_loop().call_later(self.idle, self.release_soon)
+
+    def release_soon(self):
+        self.timer = None
+        self.releasing = asyncio.create_task(self.release_if_idle())
+
+    async def release_if_idle(self):
+        async with self.starting:
+            if not self.active:
+                await self.shutdown()
 
     async def client(self):
         async with self.starting:
@@ -254,6 +282,10 @@ class MaestroProcess:
                 ready.cancel()
 
     async def reset(self):
+        async with self.starting:
+            await self.shutdown()
+
+    async def shutdown(self):
         task, self.task = self.task, None
         if task is None:
             return
@@ -271,21 +303,22 @@ class MaestroProcess:
 class ManagedMaestro:
     """The Maestro interface over a restartable process; see MaestroProcess."""
 
-    def __init__(self, command="maestro", app_id=None, process=None):
-        self.process = process or MaestroProcess(command)
+    def __init__(self, command="maestro", app_id=None, process=None, idle=None):
+        self.process = process or MaestroProcess(command, idle)
         self.app_id = app_id
 
     def for_app(self, app_id):
         return ManagedMaestro(app_id=app_id, process=self.process)
 
     async def call(self, method, *args):
-        maestro = (await self.process.client()).for_app(self.app_id)
-        try:
-            return await getattr(maestro, method)(*args)
-        except Exception as error:
-            if closed(error):
-                await self.process.reset()
-            raise
+        async with self.process.use() as client:
+            try:
+                return await getattr(client.for_app(self.app_id), method)(*args)
+            except Exception as error:
+                if not closed(error):
+                    raise
+        await self.process.reset()  # The process died; the next call starts a fresh one.
+        raise RuntimeError("Maestro connection closed; retry to start a fresh driver")
 
     async def devices(self):
         return await self.call("devices")

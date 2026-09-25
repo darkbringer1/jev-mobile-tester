@@ -15,9 +15,11 @@ PROJECT ?= $(CURDIR)
 APP ?=
 DEVICE ?=
 CLIENT ?=
+FLOWS ?= maestro
+TAGS ?= smoke
 
 .PHONY: help check install install-cli laya laya-status laya-logs doctor devices apps \
-	register connect test uninstall laya-uninstall
+	register connect workflow test uninstall laya-uninstall
 
 help: ## Show this help
 	@echo "Jev Mobile: local MCP server for driving iOS simulators from AI agents"
@@ -32,6 +34,7 @@ help: ## Show this help
 	@echo "connect options: APP=bundle id, DEVICE=simulator UDID, PROJECT=app repo,"
 	@echo "                 CLIENT=claude|codex|cursor|json (default: all detected)"
 	@echo "register/connect ask per Claude config (~/.claude.json, ~/.claude-*); YES=1 skips"
+	@echo "workflow options: PROJECT=app repo, APP=bundle id, FLOWS=maestro, TAGS=smoke"
 
 check: ## Check prerequisites (uv, Xcode, Java, Maestro)
 	@echo "Checking prerequisites:"
@@ -95,6 +98,11 @@ connect: ## Register the MCP server with your AI agents for PROJECT
 	cd "$(patsubst ~%,$(HOME)%,$(PROJECT))" && jev-mobile setup \
 		$(if $(APP),--app-id "$(APP)") $(if $(DEVICE),--device "$(DEVICE)") \
 		$(if $(YES),--yes) $(foreach c,$(CLIENT),--client $(c))
+
+workflow: ## Add the sim-tester agent and a pre-push flow run to PROJECT (see docs/workflow.md)
+	@command -v jev-mobile >/dev/null || { echo "Run make install first"; exit 1; }
+	cd "$(patsubst ~%,$(HOME)%,$(PROJECT))" && jev-mobile setup --agent --git-hook \
+		$(if $(APP),--app-id "$(APP)") --flows "$(FLOWS)" --hook-tags "$(TAGS)"
 
 test: ## Run tests and lint (for contributors)
 	uv sync --locked

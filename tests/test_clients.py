@@ -1,6 +1,8 @@
 import json
 import tomllib
 
+import pytest
+
 from jev_mobile import clients
 from jev_mobile.clients import claude_configs, register_claude, register_codex, register_cursor
 
@@ -72,3 +74,36 @@ def test_rival_maestro_servers_are_reported(tmp_path, monkeypatch):
     }
     (tmp_path / ".claude.json").write_text(json.dumps(config))
     assert clients.rival_maestro_servers() == ["~/.claude.json: maestro (/code/app)"]
+
+
+def setup_args(**overrides):
+    from jev_mobile.cli import parser
+
+    args = parser().parse_args(["setup", "--app-id", "com.x.app", "--flows", "maestro"])
+    for key, value in overrides.items():
+        setattr(args, key, value)
+    return args
+
+
+def test_agent_is_scoped_to_jev_tools(tmp_path):
+    path = clients.write_agent(setup_args(), tmp_path)
+    text = path.read_text()
+    assert path == tmp_path / ".claude" / "agents" / "sim-tester.md"
+    assert text.startswith("---\nname: sim-tester\n")
+    assert "model: haiku" in text
+    assert "mcp__jev-mobile__run_flow" in text and "mcp__jev-mobile__screenshot" not in text
+    assert "appId: com.x.app" in text and "maestro/features/" in text
+    assert "{" + "flows}" not in text
+
+
+def test_git_hook_is_executable_and_never_clobbers_foreign_hooks(tmp_path):
+    (tmp_path / ".git" / "hooks").mkdir(parents=True)
+    path = clients.write_git_hook(setup_args(hook_tags="smoke,fast"), tmp_path)
+    text = path.read_text()
+    assert path.stat().st_mode & 0o111
+    assert "test maestro --include-tags smoke,fast" in text
+    assert "JEV_SKIP" in text
+    clients.write_git_hook(setup_args(), tmp_path)  # Rewriting its own hook is fine.
+    path.write_text("#!/bin/sh\nnpm test\n")
+    with pytest.raises(ValueError, match="not jev-mobile's"):
+        clients.write_git_hook(setup_args(), tmp_path)

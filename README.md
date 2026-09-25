@@ -79,6 +79,20 @@ default wait is now 100 s, which isn't measured yet.
 equal. `run_flow(dir=..., include_tags=[...])` now runs a whole suite in one call, which
 should cut turns for either runner. It hasn't been measured yet.
 
+## Use it in your workflow
+
+Check every finished feature on the simulator without an agent driving it step by step.
+The app opens any screen from a debug launch argument, each feature has a flow file, a
+small `sim-tester` agent runs it in one call, and `jev-mobile test` runs suites from a git
+hook or CI with no model at all:
+
+```sh
+make workflow PROJECT=~/code/your-app APP=com.example.app   # agent + pre-push hook
+jev-mobile test maestro --include-tags smoke                # one line, exit 1 on failure
+```
+
+See [the workflow guide](docs/workflow.md), including the debug-route spec for your app.
+
 ## The idea
 
 Your agent sends a task like:

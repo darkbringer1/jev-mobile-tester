@@ -22,11 +22,12 @@ Never commit `.env`, `runs/`, credentials, or personal simulator screenshots.
 - `maestro.py`: own the Maestro MCP process; restart it to stop in-flight work and its
   driver, and detect drivers started by other Maestro processes.
 - `agent.py`: execute the bounded observation/decision/action loop.
-- `cli.py`: command inputs and artifacts.
+- `cli.py`: command inputs and artifacts; `test` runs flows without a model for hooks/CI.
 - `server.py`: compact MCP facade: direct `devices`, `screen`, `screenshot`, `run_flow`,
   and goal-level `run_goal`, `run_report`, `run_cancel`. Runs execute in the background and
   return a `run_id` when they outlast `wait`.
-- `clients.py`: `jev-mobile setup` registration for Claude Code, Codex, and Cursor.
+- `clients.py`: `jev-mobile setup` registration for Claude Code, Codex, and Cursor, plus the
+  app-repo `sim-tester` agent and pre-push hook (`docs/workflow.md`).
 
 Keep model output restricted to offered choices. Keep ordinary MCP responses compact
 and detail retrieval explicit. Preserve independent completion assertions.

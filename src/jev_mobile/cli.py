@@ -2,9 +2,11 @@
 
 import argparse
 import asyncio
+import contextlib
 import json
 import os
 import sys
+import time
 from dataclasses import asdict
 from pathlib import Path
 
@@ -36,6 +38,12 @@ def parser():
         "--timeout", type=float, help="Optional per-call deadline in seconds; default none"
     )
     serve.add_argument("--min-confidence", type=float, default=0.5)
+    serve.add_argument(
+        "--idle-release",
+        type=float,
+        default=float(os.getenv("JEV_IDLE_RELEASE", "120")),
+        help="Free the simulator driver after this many idle seconds (0: never)",
+    )
     setup = sub.add_parser("setup", help="Register the MCP server with local AI agent clients")
     setup.add_argument("--app-id", help="Default bundle ID; agents can still pass app_id")
     setup.add_argument("--device", help="Default device; else the single connected device")
@@ -57,10 +65,36 @@ def parser():
         action="store_true",
         help="Register in every discovered Claude Code config without asking",
     )
+    setup.add_argument(
+        "--agent",
+        action="store_true",
+        help="Write .claude/agents/sim-tester.md: a small verification agent (then skip registration unless --client)",
+    )
+    setup.add_argument(
+        "--git-hook",
+        action="store_true",
+        help="Write a pre-push hook that runs `jev-mobile test` on --flows with --hook-tags",
+    )
+    setup.add_argument("--flows", default="maestro", help="Flow directory in the app repo")
+    setup.add_argument("--hook-tags", default="smoke", help="Comma-separated tags for the hook")
     setup.add_argument("--backend", choices=("jev", "laya"), default="laya")
     setup.add_argument("--laya-url", help="Local Laya origin; default http://127.0.0.1:8081")
     local = sub.add_parser("laya-serve", help="Serve Laya locally on Apple Silicon (extra: laya)")
     local.add_argument("--port", type=int, default=8081)
+    test = sub.add_parser(
+        "test", help="Run Maestro flows without a model; prints one line, exits 1 on failure"
+    )
+    test.add_argument("paths", nargs="+", type=Path, help="Flow files, or one flow directory")
+    test.add_argument("--include-tags", default="", help="Comma-separated; directory runs only")
+    test.add_argument("--exclude-tags", default="", help="Comma-separated; directory runs only")
+    test.add_argument("--device", default=os.getenv("JEV_DEVICE_ID"))
+    test.add_argument("--env", action="append", default=[], metavar="KEY=VALUE")
+    test.add_argument(
+        "--wait-free",
+        type=float,
+        default=180,
+        help="Seconds to wait for another Maestro driver (e.g. an idle agent session) to exit",
+    )
     sub.add_parser("devices", help="List devices through Maestro MCP")
     sub.add_parser("doctor", help="Check the installed Maestro MCP tool contract")
     inspect = sub.add_parser("inspect", help="Show the normalized element table")
@@ -85,7 +119,70 @@ def parser():
     return root
 
 
+async def run_tests(args):
+    """Model-free suite run for hooks and CI: zero agent tokens on pass, one line on failure."""
+    from .maestro import failure_reason, flow_total, foreign_drivers
+
+    paths = [path.expanduser().resolve() for path in args.paths]
+    missing = [str(path) for path in paths if not path.exists()]
+    if missing:
+        raise ValueError(f"Not found: {', '.join(missing)}")
+    folder = paths[0] if len(paths) == 1 and paths[0].is_dir() else None
+    if not folder and any(path.is_dir() for path in paths):
+        raise ValueError("Pass one directory, or flow files only")
+    include = [t for t in args.include_tags.split(",") if t]
+    exclude = [t for t in args.exclude_tags.split(",") if t]
+    if (include or exclude) and not folder:
+        raise ValueError("--include-tags/--exclude-tags need a directory")
+    env = dict(item.split("=", 1) for item in args.env if "=" in item)
+    started = time.monotonic()
+    async with connect(args.maestro) as maestro:
+        device = args.device
+        if not device:
+            data = json.loads(await maestro.devices())
+            connected = [d["device_id"] for d in data.get("devices", []) if d.get("connected")]
+            if len(connected) != 1:
+                raise ValueError(f"{len(connected)} connected devices; pass --device")
+            device = connected[0]
+        deadline = time.monotonic() + args.wait_free
+        while pids := await asyncio.to_thread(foreign_drivers, device):
+            if time.monotonic() >= deadline:
+                print(
+                    f"jev-mobile test: busy: another Maestro driver (pid "
+                    f"{', '.join(map(str, pids))}) holds port 22087",
+                    file=sys.stderr,
+                )
+                return 3
+            await asyncio.sleep(2)
+        try:
+            text = await maestro.run_files(
+                device,
+                [str(p) for p in paths] if not folder else None,
+                env,
+                str(folder) if folder else None,
+                include,
+                exclude,
+            )
+        except RuntimeError as error:
+            reason = str(error)
+            with contextlib.suppress(ValueError, AttributeError, IndexError):
+                reason = failure_reason(json.loads(reason.split(": ", 1)[1])) or reason
+            print(f"jev-mobile test: FAILED ({elapsed(started)}): {reason}")
+            return 1
+    total = flow_total(text)
+    count = f"{total} flows" if total is not None else "flows"
+    print(f"jev-mobile test: passed {count} in {elapsed(started)}")
+    return 0
+
+
+def elapsed(started):
+    seconds = time.monotonic() - started
+    return f"{seconds / 60:.1f} min" if seconds >= 90 else f"{seconds:.0f} s"
+
+
 async def execute(args):
+    if args.command == "test":
+        return await run_tests(args)
     if args.command == "request":
         screen = parse_screen(args.screen.read_text())
         print(json.dumps(request_body(screen, args.goal, [], {}), indent=2))
@@ -179,6 +276,7 @@ def main():
                 min_confidence=args.min_confidence,
                 backend=args.backend,
                 laya_url=args.laya_url,
+                idle_release=args.idle_release,
             ).run()
             return
         raise SystemExit(asyncio.run(execute(args)))

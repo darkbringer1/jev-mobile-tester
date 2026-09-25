@@ -449,13 +449,14 @@ def create_server(
     backend=None,
     laya_url=None,
     service=None,
+    idle_release=120,
 ):
     @asynccontextmanager
     async def lifespan(server):
         if service is not None:
             yield service
             return
-        maestro = ManagedMaestro(maestro_command)
+        maestro = ManagedMaestro(maestro_command, idle=idle_release or None)
         async with httpx.AsyncClient(timeout=30) as client:
             model = create_model(client, min_confidence, backend, laya_url)
             mobile = MobileService(

@@ -46,13 +46,9 @@ def test_command_errors_never_become_success(text, is_error):
         asyncio.run(maestro.run("simulator", [{"assertVisible": "Missing"}]))
 
 
-def test_reset_stops_in_flight_maestro_work_and_restarts(tmp_path):
-    import os
+def fake_maestro(tmp_path, marker):
     import sys
 
-    from jev_mobile.maestro import ManagedMaestro
-
-    marker = tmp_path / "finished"
     fake = tmp_path / "maestro"
     fake.write_text(
         f"#!{sys.executable}\n"
@@ -61,7 +57,7 @@ def test_reset_stops_in_flight_maestro_work_and_restarts(tmp_path):
         "server = FastMCP('fake')\n"
         "@server.tool()\n"
         "def list_devices() -> str:\n"
-        '    return \'{"devices": [], "pid": %d}\' % os.getpid()\n'
+        "    return '{\"devices\": [], \"pid\": %d}' % os.getpid()\n"
         "@server.tool()\n"
         "def run(device_id: str, yaml: str) -> str:\n"
         "    time.sleep(3)\n"
@@ -70,6 +66,24 @@ def test_reset_stops_in_flight_maestro_work_and_restarts(tmp_path):
         "server.run()\n"
     )
     fake.chmod(0o755)
+    return fake
+
+
+def alive(pid):
+    import os
+
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def test_reset_stops_in_flight_maestro_work_and_restarts(tmp_path):
+    from jev_mobile.maestro import ManagedMaestro
+
+    marker = tmp_path / "finished"
+    fake = fake_maestro(tmp_path, marker)
 
     async def exercise():
         maestro = ManagedMaestro(str(fake))
@@ -78,8 +92,7 @@ def test_reset_stops_in_flight_maestro_work_and_restarts(tmp_path):
         await asyncio.sleep(0.5)
         call.cancel()
         await maestro.reset()
-        with pytest.raises(ProcessLookupError):
-            os.kill(first, 0)
+        assert not alive(first)
         second = json.loads(await maestro.devices())["pid"]
         assert second != first
         await maestro.reset()
@@ -118,3 +131,23 @@ def test_suite_failures_count_failed_flows():
         Maestro.checked(text)
     assert flow_total(json.dumps({"success": True, "total_flows": 12})) == 12
     assert flow_total("Flow ran") is None
+
+
+def test_idle_process_releases_and_restarts_on_next_call(tmp_path):
+    from jev_mobile.maestro import ManagedMaestro
+
+    fake = fake_maestro(tmp_path, tmp_path / "unused")
+
+    async def exercise():
+        maestro = ManagedMaestro(str(fake), idle=0.5)
+        first = json.loads(await maestro.devices())["pid"]
+        await asyncio.sleep(0.2)
+        assert alive(first)  # Still warm between quick calls.
+        assert json.loads(await maestro.devices())["pid"] == first
+        await asyncio.sleep(3)
+        assert not alive(first)  # Released: the driver port is free for other runners.
+        second = json.loads(await maestro.devices())["pid"]
+        assert second != first
+        await maestro.reset()
+
+    asyncio.run(exercise())

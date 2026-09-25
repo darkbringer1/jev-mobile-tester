@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -180,7 +181,90 @@ def warnings(args):
     return problems
 
 
+AGENT = """---
+name: sim-tester
+description: Verifies a finished app feature on the iOS simulator with a Maestro flow via \
+jev-mobile. Give it the feature name, its debug route, and the text that proves it works. It \
+writes or reuses the flow file, runs it, and answers in one line.
+tools: Read, Write, Edit, Glob, mcp__jev-mobile__run_flow, mcp__jev-mobile__screen, \
+mcp__jev-mobile__run_report, mcp__jev-mobile__run_cancel
+model: haiku
+---
+You verify one feature on the simulator. Every turn re-reads your context, so use few calls.
+
+1. If `{flows}/features/<feature>.yaml` exists, run it with `run_flow(files=[...])`. If it
+   passes, answer `PASS <file>` and stop.
+2. Otherwise write it. Open the screen through its debug route instead of navigating:
+
+   ```yaml
+   appId: {app}
+   tags: [smoke, <feature>]
+   ---
+   - launchApp:
+       arguments:
+         jevRoute: "<route>"
+   - extendedWaitUntil:
+       visible: "<text that proves the screen loaded>"
+       timeout: 15000
+   - assertVisible: "<expected text>"
+   ```
+
+   Only when you need exact texts or ids, explore with `run_flow(commands=...)`; its result
+   includes the screen. Batch steps. Prefer ids (`tapOn: {{id: ...}}`) and
+   `extendedWaitUntil` over fixed waits.
+3. Run the file once and answer in one line: `PASS <file>`, or `FAIL <file>: <reason>`
+   plus the few visible elements that explain it. Do not edit app code.
+
+If a result says `running`, call `run_report(run_id, wait=100)`. Avoid screenshots.
+"""
+
+HOOK = """#!/bin/sh
+# jev-mobile: model-free Maestro run before push. Skip once with: JEV_SKIP=1 git push
+[ -n "$JEV_SKIP" ] && exit 0
+exec {command} --maestro {maestro} test {flows} --include-tags {tags}
+"""
+HOOK_MARK = "# jev-mobile:"
+
+
+def write_agent(args, root):
+    path = root / ".claude" / "agents" / "sim-tester.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(AGENT.format(flows=args.flows, app=args.app_id or "com.example.app"))
+    return path
+
+
+def write_git_hook(args, root):
+    git = root / ".git"
+    if not git.is_dir():
+        raise ValueError(f"{root} is not a git repository root")
+    path = git / "hooks" / "pre-push"
+    if path.exists() and HOOK_MARK not in path.read_text():
+        raise ValueError(f"{path} exists and is not jev-mobile's; add the command yourself")
+    spec = server_spec(args)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        HOOK.format(
+            command=shlex.quote(spec["command"]),
+            maestro=shlex.quote(spec["args"][1]),
+            flows=shlex.quote(args.flows),
+            tags=shlex.quote(args.hook_tags),
+        )
+    )
+    path.chmod(0o755)
+    return path
+
+
 def setup(args):
+    root = Path.cwd()
+    for wanted, write in ((args.agent, write_agent), (args.git_hook, write_git_hook)):
+        if wanted:
+            try:
+                print(f"wrote {write(args, root)}")
+            except (OSError, ValueError) as error:
+                print(f"setup: {error}", file=sys.stderr)
+                return 1
+    if (args.agent or args.git_hook) and not args.client:
+        return 0
     spec = server_spec(args)
     registered = []
     for client in args.client or detected():
