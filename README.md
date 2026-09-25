@@ -163,13 +163,18 @@ Device discovery and the offline tests work without an API key.
 
 ## Use it with your agent
 
-Install the command once, then register it from your app's repository:
+Three commands from this checkout (run `make` to see every target):
 
 ```sh
-uv tool install --editable /absolute/path/to/jev-mobile   # puts jev-mobile on PATH
-cd /path/to/your-app
-jev-mobile setup --app-id com.example.yourapp
+make install                                        # checks prerequisites, installs the
+                                                    # jev-mobile command and the Laya service
+make apps                                           # bundle IDs on booted simulators
+make connect APP=com.example.yourapp PROJECT=~/code/your-app
 ```
+
+`make check` lists anything missing with the command to install it. `make doctor` checks
+Laya and Maestro afterwards. Without make, the equivalent is `uv tool install --editable .`
+and then `jev-mobile setup --app-id com.example.yourapp` inside your app repository.
 
 `setup` registers the server with every detected client: Claude Code (this project's
 local scope), Codex (`~/.codex/config.toml`, with a 210-second tool timeout), and Cursor

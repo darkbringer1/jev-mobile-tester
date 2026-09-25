@@ -5,7 +5,9 @@ dependency; do not modify a separate Maestro checkout as part of routine work he
 
 ## Development
 
-Run `uv sync --locked`, `uv run pytest`, `uv run ruff check .`, and `uv build`.
+Run `uv sync --locked`, `uv run pytest`, `uv run ruff check .`, and `uv build`
+(`make test` runs the first three). The Makefile is the user-facing install path;
+`make laya` redeploys the installed LaunchAgent from source.
 For Laya development, retain optional dependencies with `uv sync --locked --extra laya`
 and `uv run --extra laya ...` for pytest, Ruff, and examples.
 Do not make paid TypeSafe calls without authorization and a supplied API key.

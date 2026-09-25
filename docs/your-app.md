@@ -97,12 +97,11 @@ because the tested iOS hierarchy does not expose editable control types reliably
 
 ## 5. Connect your AI agent
 
-Quickest path: install the command once, then register it from your app repository:
+Quickest path, from the jev-mobile checkout:
 
 ```sh
-uv tool install --editable /absolute/path/to/jev-mobile
-cd /path/to/your-app
-jev-mobile setup --app-id com.example.yourapp --device YOUR_SIMULATOR_UDID
+make install
+make connect APP=com.example.yourapp PROJECT=/path/to/your-app DEVICE=YOUR_SIMULATOR_UDID
 ```
 
 This configures Claude Code, Codex, and Cursor when they are installed. Restart open agent
