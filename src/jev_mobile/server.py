@@ -40,17 +40,24 @@ def clamp_wait(seconds):
 
 
 def visible(screen):
-    """Compact {text,id,value} items; the same shape the screen tool returns."""
-    elements = []
+    """One line per element: `text #id = value [checked] [selected]`, empty parts omitted.
+
+    Flat strings cost roughly a third less context than {"text":...} objects, and every
+    screen read and run_flow result carries them.
+    """
+    lines = []
     for element in screen.elements:
-        item = {"text": element.label, "id": element.resource_id, "value": element.value}
-        item = {k: v for k, v in item.items() if v}
+        parts = [element.label]
+        if element.resource_id:
+            parts.append("#" + element.resource_id)
+        if element.value:
+            parts.append("= " + element.value)
         if element.checked:
-            item["checked"] = True
+            parts.append("[checked]")
         if element.selected:
-            item["selected"] = True
-        elements.append(item)
-    return elements
+            parts.append("[selected]")
+        lines.append(" ".join(part for part in parts if part))
+    return lines
 
 
 WAIT = 45  # Seconds a tool call waits before returning a running run_id; under client limits.
@@ -463,7 +470,8 @@ def create_server(
         structured_output=False, annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False)
     )
     async def screen(ctx: Context, device_id: str | None = None, raw: bool = False) -> str:
-        """Visible elements as {text,id,value}. Target them in run_flow by text or id.
+        """Visible elements, one per line: `text #id = value [checked]`. Target them in
+        run_flow by text (tapOn: "text") or id (tapOn: {id: "id"}).
         raw: Maestro's unfiltered hierarchy, only to debug a missing element."""
         return compact(await ctx.request_context.lifespan_context.screen(device_id, raw))
 

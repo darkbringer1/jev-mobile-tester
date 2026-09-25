@@ -233,9 +233,28 @@ def test_device_transport_errors_stay_compact(tmp_path):
 
 def test_screen_is_compact_and_omits_empty_fields(tmp_path):
     result = asyncio.run(service(tmp_path).screen())
-    assert result["device"] == "sim"
-    assert result["elements"] and all(item for item in result["elements"])
-    assert not any(v == "" for item in result["elements"] for v in item.values())
+    assert result == {
+        "device": "sim",
+        "elements": ["Settings #settings_button", "Search #search_field"],
+    }
+
+
+def test_screen_lines_carry_value_and_state():
+    from jev_mobile.screen import parse_screen
+    from jev_mobile.server import visible
+
+    doc = {
+        "elements": [
+            {"b": "[0,0][10,10]", "a11y": "Email", "rid": "email", "val": "a@b.c"},
+            {"b": "[0,20][10,30]", "a11y": "Dark Mode", "checked": True},
+            {"b": "[0,40][10,50]", "rid": "icon_only", "selected": True},
+        ]
+    }
+    assert visible(parse_screen(json.dumps(doc))) == [
+        "Email #email = a@b.c",
+        "Dark Mode [checked]",
+        "#icon_only [selected]",
+    ]
 
 
 def test_run_flow_wraps_commands_with_default_app(tmp_path):
@@ -243,7 +262,7 @@ def test_run_flow_wraps_commands_with_default_app(tmp_path):
     result = asyncio.run(svc.run_flow('- tapOn: "General"\n- back'))
     assert result.keys() == {"status", "run_id", "ms", "steps", "screen"}
     assert (result["status"], result["steps"]) == ("passed", 2)
-    assert {"text": "Settings", "id": "settings_button"} in result["screen"]
+    assert "Settings #settings_button" in result["screen"]
     report = json.loads((tmp_path / result["run_id"] / "result.json").read_text())
     assert report["commands"] == [{"tapOn": "General"}, "back"]
     assert svc.maestro.calls == [("com.example.app", [{"tapOn": "General"}, "back"])]

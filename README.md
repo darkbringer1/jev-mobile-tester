@@ -23,6 +23,33 @@ a local MCP server.
 
 By [Doğukaan Kılıçarslan](https://github.com/darkbringer1) · [MIT](LICENSE)
 
+## First result: same tests, 27% fewer tokens than the Maestro MCP server
+
+One controlled run on a real app (2026-09-25). The same Claude Haiku agent prompt did two
+tasks, once with the stock Maestro MCP server and once with Jev Mobile's direct tools:
+
+- **T1:** run an existing Maestro flow file.
+- **T2:** navigate a record to a detail field and read its value.
+
+| | Maestro MCP | Jev Mobile | Difference |
+|---|---|---|---|
+| T1 and T2 | both passed | both passed | — |
+| Total tokens processed | 591k | **429k** | **−27%** |
+| Agent turns | 13 | **10** | −3 |
+| Wall time | 3.6 min | **3.2 min** | −11% |
+| Screen data per read | 3.9k chars | **1.4k chars** | −64% |
+| Screen reads | 4 | **2** | −2 |
+
+Where the saving comes from: compact screens, and `run_flow` returning the screen after it runs,
+so the agent reads less and makes fewer calls.
+
+How it was run: two fresh iPhone 17 simulators (iOS 26.5) with only the app installed,
+Maestro 2.10.0, one runner at a time, with the same guardrails for both. This is **one
+run per runner on one app**. The direction is clear, but the numbers aren't statistically
+solid yet, and repeat runs are planned. It measures the direct tools (`screen`, `run_flow`),
+not the model-driven `run_goal` loop. Screens have since switched to a more compact
+one-line-per-element format, which isn't reflected in these numbers.
+
 ## The idea
 
 Your agent sends a task like:
@@ -41,8 +68,8 @@ The MCP interface has a few compact tools:
 - **`run_report`** — wait for a long run, or look at recent steps to debug.
 - **`run_cancel`** — stop a run and its Maestro driver.
 
-The aim is to use less of your agent's context. I haven't measured total token savings
-yet. The server runs locally. Choose TypeSafe's hosted Jev API or a local Laya model.
+The aim is to use less of your agent's context; see the first result above. The server
+runs locally. Choose TypeSafe's hosted Jev API or a local Laya model.
 
 ## Local Laya on a Mac
 

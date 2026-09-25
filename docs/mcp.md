@@ -64,7 +64,7 @@ Do not run another controller against the same simulator during a goal.
 | Tool | Use |
 | --- | --- |
 | `devices()` | Connected devices only; omit when a default is configured. |
-| `screen(device_id?, raw?)` | Compact visible elements as `{text, id, value}`. `raw` returns Maestro's hierarchy, only to debug a missing element. |
+| `screen(device_id?, raw?)` | Visible elements, one line each: `text #id = value [checked] [selected]`. `raw` returns Maestro's hierarchy, only to debug a missing element. |
 | `screenshot(device_id?)` | Image of the current screen. Large; prefer `screen`. |
 | `run_flow(commands? \| files?, device_id?, app_id?, env?, wait=45)` | Run a YAML list of Maestro steps (the server adds the `appId` header) or existing flow files. Returns `passed` or the failing flow's reason, a `run_id`, and the resulting `screen`. Batch predictable steps into one call. |
 | `run_goal(goal, expect_text?, device_id?, app_id?, values?, max_steps?, wait=45)` | Execute the bounded loop; return status, run ID, step count, duration, and reported model usage. |
