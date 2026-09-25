@@ -22,7 +22,7 @@ def test_codex_replaces_only_its_own_tables(tmp_path, monkeypatch):
     server = data["mcp_servers"]["jev-mobile"]
     assert server["command"] == "/bin/jev-mobile"
     assert server["env"] == {"JEV_APP_ID": "com.x"}
-    assert server["tool_timeout_sec"] > 180
+    assert server["tool_timeout_sec"] == 600
     assert (tmp_path / "config.toml.bak").exists()
 
 

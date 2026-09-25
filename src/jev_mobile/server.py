@@ -35,7 +35,7 @@ def short_error(error, secrets=()):
 
 
 class MobileService:
-    def __init__(self, maestro, model, output: Path, *, device_id=None, app_id=None, timeout=180):
+    def __init__(self, maestro, model, output: Path, *, device_id=None, app_id=None, timeout=None):
         self.maestro = maestro
         self.model = model
         self.output = output
@@ -249,7 +249,7 @@ def create_server(
     output=Path("runs/mcp"),
     device_id=None,
     app_id=None,
-    timeout=180,
+    timeout=None,
     min_confidence=0.5,
     backend=None,
     laya_url=None,

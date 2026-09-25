@@ -13,7 +13,7 @@ import httpx
 
 NAME = "jev-mobile"
 CLIENTS = ("claude", "codex", "cursor", "json")
-TOOL_TIMEOUT = 210  # Above the server's 180-second goal deadline.
+TOOL_TIMEOUT = 600  # Codex needs a number; allow flows that wait on slow app network calls.
 
 
 def server_spec(args):

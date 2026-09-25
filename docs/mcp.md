@@ -32,8 +32,9 @@ uv run --extra laya jev-mobile serve --backend laya \
 
 If your agent is opened in your app's repository, keep `--directory` pointing to the
 separate `jev-mobile` checkout. Use [the app guide](your-app.md) to find the bundle ID
-and supply text-field values. Set the client's tool timeout above the server's 180-second
-default, for example 210 seconds. Do not run the same goal concurrently through raw Maestro.
+and supply text-field values. The server has no deadline by default, because flows can wait
+on slow app network calls; raise the client's tool timeout to match. Do not run the same goal
+concurrently through raw Maestro.
 
 ### Hosted Jev
 
@@ -103,10 +104,10 @@ live under `~/Library/Application Support/jev-mobile/runs/<run_id>/` (or `--outp
 
 One persistent Maestro connection and one HTTP client are reused. Runs are serialized;
 concurrent goals get `busy`. Each goal resumes its app without clearing state or
-implicitly stopping it. The default limit is 30 decisions (maximum 100) and 180 seconds
-including launch and verification. Change the server deadline with `--timeout` (up to
-600 seconds), and set the agent client's tool timeout slightly higher. No polling is
-needed: one tool call waits for the outcome.
+implicitly stopping it. The default limit is 30 decisions (maximum 100) with no time
+deadline. Set one with `--timeout SECONDS` if you want calls bounded, and keep the agent
+client's tool timeout higher. Cancelling the tool call stops the run and frees the lock.
+No polling is needed: one tool call waits for the outcome.
 
 Cancellation stops the local loop and saves a cancelled report. A command already sent
 to the device may have taken effect; cancellation is not rollback. Retries are new runs,

@@ -32,7 +32,9 @@ def parser():
         default=Path(os.getenv("JEV_RUNS", DEFAULT_RUNS)).expanduser(),
         help="Run reports directory, outside the agent's workspace by default",
     )
-    serve.add_argument("--timeout", type=float, default=180)
+    serve.add_argument(
+        "--timeout", type=float, help="Optional per-call deadline in seconds; default none"
+    )
     serve.add_argument("--min-confidence", type=float, default=0.5)
     setup = sub.add_parser("setup", help="Register the MCP server with local AI agent clients")
     setup.add_argument("--app-id", help="Default bundle ID; agents can still pass app_id")
@@ -164,8 +166,10 @@ def main():
         if args.command == "serve":
             from .server import create_server
 
-            if not 0 < args.timeout <= 600 or not 0 <= args.min_confidence <= 1:
-                raise ValueError("timeout must be in (0, 600]; min-confidence in [0, 1]")
+            if args.timeout is not None and args.timeout <= 0:
+                raise ValueError("timeout must be positive")
+            if not 0 <= args.min_confidence <= 1:
+                raise ValueError("min-confidence must be in [0, 1]")
             create_server(
                 maestro_command=args.maestro,
                 output=args.output,

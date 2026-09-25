@@ -138,7 +138,7 @@ With device/app defaults configured, ask the agent to call:
 ```
 
 The tool is `run_goal`. Follow failures with `run_report` using the returned `run_id`.
-Configure the client's tool timeout above 180 seconds, for example 210 seconds.
+The server has no deadline by default; give the client a long tool timeout too.
 Use one controller at a time on the simulator. Keep existing Maestro YAML tests for
 deterministic regression checks while evaluating this goal-driven path.
 

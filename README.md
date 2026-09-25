@@ -183,7 +183,7 @@ Laya and Maestro afterwards. Without make, the equivalent is `uv tool install --
 and then `jev-mobile setup --app-id com.example.yourapp` inside your app repository.
 
 `setup` registers the server with every detected client: Claude Code (this project's
-local scope, in each discovered config), Codex (`~/.codex/config.toml`, with a 210-second tool timeout), and Cursor
+local scope, in each discovered config), Codex (`~/.codex/config.toml`, with a 10-minute tool timeout), and Cursor
 (`.cursor/mcp.json`). Use `--client` to pick one, `--global` for user-wide Claude/Cursor
 config, `--device` to pin a simulator, and `--client json` to print a config for other clients.
 It defaults to the local Laya backend. The server exposes direct Maestro tools too
@@ -214,8 +214,8 @@ With the device and app configured, a `run_goal` call looks like this:
 Only `verified` means the checks you supplied passed. If you leave out `expect_text`,
 the run can finish as `done_unverified`.
 
-The server allows up to 180 seconds per goal by default, so set your client's tool
-timeout a little higher. More options are in the [MCP guide](docs/mcp.md).
+The server has no per-goal deadline by default (`--timeout` sets one), so long flows
+that wait on network calls finish; make sure your client's tool timeout is long too. More options are in the [MCP guide](docs/mcp.md).
 
 ## A couple of useful bits
 

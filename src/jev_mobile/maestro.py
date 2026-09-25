@@ -3,7 +3,6 @@
 import json
 import os
 from contextlib import asynccontextmanager
-from datetime import timedelta
 
 import yaml
 from mcp import ClientSession, StdioServerParameters
@@ -100,7 +99,7 @@ async def connect(command="maestro", app_id=None):
     )
     async with (
         stdio_client(params) as (reader, writer),
-        ClientSession(reader, writer, read_timeout_seconds=timedelta(seconds=120)) as session,
+        ClientSession(reader, writer, read_timeout_seconds=None) as session,
     ):
         await session.initialize()
         tools = {tool.name: tool for tool in (await session.list_tools()).tools}
