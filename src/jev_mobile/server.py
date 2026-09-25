@@ -60,7 +60,9 @@ def visible(screen):
     return lines
 
 
-WAIT = 45  # Seconds a tool call waits before returning a running run_id; under client limits.
+# Seconds a call waits before returning a running run_id. Covers a cold driver start (~65 s)
+# so single flows finish in one turn, and stays under the 120 s client limit seen in testing.
+WAIT = 100
 MAX_WAIT = 600  # Callers pick a wait below their client's tool timeout; a lost call loses nothing.
 
 

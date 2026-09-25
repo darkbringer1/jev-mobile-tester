@@ -60,9 +60,24 @@ The same setup ran 12 existing smoke flows, one `run` call per flow. Both runner
 692k (+15%)**: every passing flow returned the final screen, about 2k characters per
 result against Maestro's ~430, and the agent re-read them on every later turn.
 
-Since then, file and directory runs return a one-line result on pass and include the
-screen only on failure. `run_flow(dir=..., include_tags=[...])` also runs a whole suite in
-one call. Neither change has been measured yet.
+After that, file and directory runs return a one-line result on pass and include the
+screen only on failure. Rerunning the suite (jev only; Maestro's run 7 numbers stand):
+
+| | Maestro | jev before | jev after |
+|---|---|---|---|
+| Result | 12/12 | 12/12 | 12/12 |
+| Wall time | 11.2 min | 11.3 min | 11.1 min |
+| Run results in context | ~430 chars/flow | ~2,000 chars/flow | **126 chars/flow** |
+| Total tokens | 692k | 793k (+15%) | 731k (+5.6%) |
+
+The remaining 39k gap is one agent turn. The cold first flow took 61 s, longer than the
+45 s default wait, so it returned `running` and the agent spent a turn on `run_report`.
+Each turn re-reads ~45k tokens of context, more than all the result-size savings. The
+default wait is now 100 s, which isn't measured yet.
+
+**Lesson so far: agent turns drive cost.** Result size only matters once turn counts are
+equal. `run_flow(dir=..., include_tags=[...])` now runs a whole suite in one call, which
+should cut turns for either runner. It hasn't been measured yet.
 
 ## The idea
 
