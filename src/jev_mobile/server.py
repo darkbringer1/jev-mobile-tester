@@ -16,7 +16,7 @@ from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import ImageContent, ToolAnnotations
 
 from .agent import run_agent
-from .maestro import ManagedMaestro
+from .maestro import ManagedMaestro, flow_total
 from .policy import create_model
 
 
@@ -61,7 +61,7 @@ def visible(screen):
 
 
 WAIT = 45  # Seconds a tool call waits before returning a running run_id; under client limits.
-MAX_WAIT = 110
+MAX_WAIT = 600  # Callers pick a wait below their client's tool timeout; a lost call loses nothing.
 
 
 class DeviceBusy(Exception):
@@ -248,9 +248,18 @@ class MobileService:
         env=None,
         wait=WAIT,
         progress=None,
+        dir=None,
+        include_tags=None,
+        exclude_tags=None,
+        screen=None,
     ):
-        if (commands is None) == (not files):
-            return {"status": "invalid", "error": "Pass exactly one of commands or files"}
+        if [commands is not None, bool(files), bool(dir)].count(True) != 1:
+            return {"status": "invalid", "error": "Pass exactly one of commands, files, or dir"}
+        if (include_tags or exclude_tags) and not dir:
+            return {"status": "invalid", "error": "include_tags/exclude_tags need dir"}
+        # Scripted runs only need detail on failure; exploratory steps need the next screen.
+        on_pass = screen if screen is not None else commands is not None
+        on_fail = screen is not False
         if commands is not None:
             try:
                 documents = [d for d in yaml.safe_load_all(commands) if d is not None]
@@ -268,29 +277,38 @@ class MobileService:
 
             async def work(report, device, directory):
                 report.update(app_id=app_id, commands=steps, counts={"steps": len(steps)})
-                async with self.observing(report, device):
+                async with self.observing(report, device, on_pass, on_fail):
                     await self.maestro.for_app(app_id).run(device, steps)
                 report["status"] = "passed"
         else:
-            paths = [str(Path(f).resolve()) for f in files]
+            paths = [str(Path(f).resolve()) for f in files or []]
+            folder = str(Path(dir).resolve()) if dir else None
 
             async def work(report, device, directory):
-                report.update(files=paths, counts={"files": len(paths)})
-                async with self.observing(report, device):
-                    await self.maestro.run_files(device, paths, env)
+                report.update(files=paths) if paths else report.update(dir=folder)
+                report["counts"] = {"files": len(paths)} if paths else {}
+                async with self.observing(report, device, on_pass, on_fail):
+                    text = await self.maestro.run_files(
+                        device, paths, env, folder, include_tags, exclude_tags
+                    )
+                if (total := flow_total(text)) is not None:
+                    report["counts"] = {"flows": total}
                 report["status"] = "passed"
 
         return await self.start("flow", device_id, work, wait, progress=progress)
 
     @contextlib.asynccontextmanager
-    async def observing(self, report, device):
-        """Attach the resulting screen, passed or failed, to save the agent a screen call."""
+    async def observing(self, report, device, on_pass=True, on_fail=True):
+        """Attach the resulting screen when the agent likely needs it, saving a screen call."""
+        failed = True
         try:
             yield
+            failed = False
         finally:
-            with contextlib.suppress(Exception):
-                async with asyncio.timeout(20):
-                    report["screen"] = visible(await self.maestro.observe(device))
+            if on_fail if failed else on_pass:
+                with contextlib.suppress(Exception):
+                    async with asyncio.timeout(20):
+                        report["screen"] = visible(await self.maestro.observe(device))
 
     async def run(
         self,
@@ -495,17 +513,34 @@ def create_server(
         app_id: str | None = None,
         env: dict[str, str] | None = None,
         wait: int = WAIT,
+        dir: str | None = None,
+        include_tags: list[str] | None = None,
+        exclude_tags: list[str] | None = None,
+        screen: bool | None = None,
     ) -> str:
         """Run Maestro steps. Batch every step you can predict into ONE call (each call costs
         a turn): e.g. '- tapOn: "General"\n- tapOn: "About"\n- assertVisible: "iOS Version"'.
         Also: launchApp, tapOn {id}, inputText, eraseText, back, scroll, swipe, pressKey,
-        extendedWaitUntil. files: existing flow paths (env optional). Omit app_id if configured.
-        The result includes the resulting screen, so a separate screen call is rarely needed.
-        Returns running + run_id if not done within wait seconds; then use run_report.
+        extendedWaitUntil. Omit app_id if configured.
+        Existing flows: files (paths) or dir (whole suite in ONE call, optional include_tags/
+        exclude_tags); env optional. Commands results include the resulting screen; files/dir
+        results include it only on failure. screen=true/false overrides.
+        Returns running + run_id if not done within wait seconds (max 600; keep below your
+        client's tool timeout); then use run_report.
         """
         return compact(
             await ctx.request_context.lifespan_context.run_flow(
-                commands, files, device_id, app_id, env, wait, progress(ctx)
+                commands,
+                files,
+                device_id,
+                app_id,
+                env,
+                wait,
+                progress(ctx),
+                dir=dir,
+                include_tags=include_tags,
+                exclude_tags=exclude_tags,
+                screen=screen,
             )
         )
 
@@ -545,7 +580,7 @@ def create_server(
     )
     async def run_report(run_id: str, ctx: Context, last_steps: int = 3, wait: int = 0) -> str:
         """Read a run summary, up to 10 recent steps, and exported flow path.
-        wait: seconds to wait for a running run to finish (max 110)."""
+        wait: seconds to wait for a running run to finish (max 600)."""
         return compact(await ctx.request_context.lifespan_context.report(run_id, last_steps, wait))
 
     @server.tool(

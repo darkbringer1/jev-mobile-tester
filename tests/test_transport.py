@@ -107,3 +107,14 @@ def test_flow_file_failures_lead_with_the_reason():
     )
     with pytest.raises(RuntimeError, match=r'^overtime.yaml: Assertion is false: "Total"'):
         Maestro.checked(text)
+
+
+def test_suite_failures_count_failed_flows():
+    from jev_mobile.maestro import Maestro, flow_total
+
+    results = [{"file": f"f{i}.yaml", "success": i != 3, "error": "boom"} for i in range(12)]
+    text = json.dumps({"success": False, "total_flows": 12, "results": results})
+    with pytest.raises(RuntimeError, match=r"^1/12 flows failed: f3.yaml: boom$"):
+        Maestro.checked(text)
+    assert flow_total(json.dumps({"success": True, "total_flows": 12})) == 12
+    assert flow_total("Flow ran") is None

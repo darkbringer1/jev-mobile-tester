@@ -66,9 +66,9 @@ Do not run another controller against the same simulator during a goal.
 | `devices()` | Connected devices only; omit when a default is configured. |
 | `screen(device_id?, raw?)` | Visible elements, one line each: `text #id = value [checked] [selected]`. `raw` returns Maestro's hierarchy, only to debug a missing element. |
 | `screenshot(device_id?)` | Image of the current screen. Large; prefer `screen`. |
-| `run_flow(commands? \| files?, device_id?, app_id?, env?, wait=45)` | Run a YAML list of Maestro steps (the server adds the `appId` header) or existing flow files. Returns `passed` or the failing flow's reason, a `run_id`, and the resulting `screen`. Batch predictable steps into one call. |
+| `run_flow(commands? \| files? \| dir?, include_tags?, exclude_tags?, device_id?, app_id?, env?, screen?, wait=45)` | Run a YAML list of Maestro steps (the server adds the `appId` header), existing flow files, or a whole directory filtered by tags in one call. Returns `passed` (with a flow count) or the failing flows' reasons, and a `run_id`. `commands` results include the resulting `screen`; `files`/`dir` results include it only on failure; `screen` overrides. Batch predictable steps into one call. |
 | `run_goal(goal, expect_text?, device_id?, app_id?, values?, max_steps?, wait=45)` | Execute the bounded loop; return status, run ID, step count, duration, and reported model usage. |
-| `run_report(run_id, last_steps=3, wait=0)` | Retrieve a compact summary, up to ten recent decisions, the full error text, and the local exported flow path. `wait` blocks for a running run (values above 110 s are capped). |
+| `run_report(run_id, last_steps=3, wait=0)` | Retrieve a compact summary, up to ten recent decisions, the full error text, and the local exported flow path. `wait` blocks for a running run (values above 600 s are capped). |
 | `run_cancel(run_id)` | Stop a running flow or goal, restart Maestro so its driver stops, and free the device. |
 
 Example agent call when defaults are configured:
@@ -119,7 +119,10 @@ deadline; set one with `--timeout SECONDS` if you want runs bounded.
 `run_flow` and `run_goal` run in the background. A call waits up to `wait` seconds
 (default 45, below common client tool timeouts) and returns the outcome, or
 `{"status":"running","run_id":...}`. Then call `run_report(run_id, wait=60)` until the
-status changes. An abandoned tool call does not stop the run; `run_cancel` does.
+status changes. `wait` goes up to 600 seconds, so a whole suite (`run_flow(dir=...)`) can
+finish in one or two calls; keep it below your client's tool timeout. An abandoned tool
+call does not stop the run and loses nothing: `run_report` still returns the result.
+`run_cancel` stops a run.
 While waiting, the server sends MCP progress notifications for clients that use them.
 
 Cancellation and `--timeout` restart the Maestro process, because Maestro keeps executing

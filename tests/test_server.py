@@ -40,8 +40,11 @@ class Device:
     async def screenshot(self, device_id):
         return [ImageContent(type="image", data="cG5n", mimeType="image/png")]
 
-    async def run_files(self, device_id, files, env=None):
-        self.calls.append((None, files))
+    async def run_files(
+        self, device_id, files=None, env=None, directory=None, include=None, exclude=None
+    ):
+        self.calls.append((None, files or {"dir": directory, "include": include}))
+        return json.dumps({"success": True, "total_flows": len(files or []) or 12})
 
     async def run(self, device_id, commands):
         self.calls.append((self.app_id, commands))
@@ -369,3 +372,37 @@ def test_failed_flow_reports_reason_and_resulting_screen(tmp_path):
     assert result["screen"]
     report = asyncio.run(svc.report(result["run_id"]))
     assert len(report["error_detail"]) > len(result["error"])
+
+
+def test_scripted_pass_is_one_line_and_screen_comes_on_request(tmp_path):
+    svc = service(tmp_path)
+    passed = asyncio.run(svc.run_flow(files=["flows/login.yaml"]))
+    assert passed.keys() == {"status", "run_id", "ms", "flows"}
+    assert len(compact(passed)) < 120
+    asked = asyncio.run(svc.run_flow(files=["flows/login.yaml"], screen=True))
+    assert asked["screen"]
+    quiet = asyncio.run(svc.run_flow("- back", screen=False))
+    assert "screen" not in quiet
+
+
+def test_scripted_failure_still_returns_screen(tmp_path):
+    class FailingDevice(Device):
+        async def run_files(self, *args):
+            raise RuntimeError("2/12 flows failed: a.yaml: boom; b.yaml: bang")
+
+    svc = MobileService(FailingDevice(), None, tmp_path, device_id="sim", app_id="app")
+    result = asyncio.run(svc.run_flow(files=["a.yaml"]))
+    assert result["error"].startswith("2/12 flows failed")
+    assert result["screen"]
+
+
+def test_directory_suite_runs_in_one_call(tmp_path):
+    svc = service(tmp_path)
+    result = asyncio.run(svc.run_flow(dir="flows", include_tags=["smoke"]))
+    assert (result["status"], result["flows"]) == ("passed", 12)
+    assert svc.maestro.calls[0][1]["dir"].endswith("flows")
+    assert svc.maestro.calls[0][1]["include"] == ["smoke"]
+    bad = asyncio.run(svc.run_flow(files=["a.yaml"], include_tags=["smoke"]))
+    assert bad["status"] == "invalid"
+    both = asyncio.run(svc.run_flow("- back", dir="flows"))
+    assert both["status"] == "invalid"

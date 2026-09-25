@@ -23,7 +23,9 @@ a local MCP server.
 
 By [Doğukaan Kılıçarslan](https://github.com/darkbringer1) · [MIT](LICENSE)
 
-## First result: same tests, 27% fewer tokens than the Maestro MCP server
+## First results against the Maestro MCP server
+
+### Exploratory testing: 27% fewer tokens
 
 One controlled run on a real app (2026-09-25). The same Claude Haiku agent prompt did two
 tasks, once with the stock Maestro MCP server and once with Jev Mobile's direct tools:
@@ -49,6 +51,18 @@ run per runner on one app**. The direction is clear, but the numbers aren't stat
 solid yet, and repeat runs are planned. It measures the direct tools (`screen`, `run_flow`),
 not the model-driven `run_goal` loop. Screens have since switched to a more compact
 one-line-per-element format, which isn't reflected in these numbers.
+
+### Scripted suite: 15% more tokens, since fixed
+
+The same setup ran 12 existing smoke flows, one `run` call per flow. Both runners passed
+12/12 at the same speed, 42–57 s per flow. jev's first flow took 62 s against Maestro's
+105 s, because its driver starts faster. But jev processed **793k tokens against Maestro's
+692k (+15%)**: every passing flow returned the final screen, about 2k characters per
+result against Maestro's ~430, and the agent re-read them on every later turn.
+
+Since then, file and directory runs return a one-line result on pass and include the
+screen only on failure. `run_flow(dir=..., include_tags=[...])` also runs a whole suite in
+one call. Neither change has been measured yet.
 
 ## The idea
 

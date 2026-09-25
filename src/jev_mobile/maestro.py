@@ -73,10 +73,18 @@ class Maestro:
             raise RuntimeError("Maestro MCP must expose run or run_flow")
         return self.checked(await self.call(tool, args))
 
-    async def run_files(self, device, files, env=None):
+    async def run_files(
+        self, device, files=None, env=None, directory=None, include=None, exclude=None
+    ):
+        """Run flow files, or a directory filtered by tags, in one Maestro call."""
         if "run" not in self.tools:
             raise RuntimeError("Running flow files needs Maestro's run tool")
-        args = {"device_id": device, "files": files, **({"env": env} if env else {})}
+        target = {"files": files} if files else {"dir": directory}
+        if directory and include:
+            target["include_tags"] = include
+        if directory and exclude:
+            target["exclude_tags"] = exclude
+        args = {"device_id": device, **target, **({"env": env} if env else {})}
         return self.checked(await self.call("run", args))
 
     @staticmethod
@@ -132,7 +140,18 @@ def failure_reason(result):
         for item in result.get("results", [])
         if isinstance(item, dict) and item.get("success") is False
     ]
-    return "; ".join(reasons) or result.get("error") or result.get("message")
+    total = result.get("total_flows")
+    prefix = f"{len(reasons)}/{total} flows failed: " if reasons and total and total > 1 else ""
+    return prefix + "; ".join(reasons) if reasons else result.get("error") or result.get("message")
+
+
+def flow_total(text):
+    """Flows Maestro ran, from its run result JSON; None when it did not say."""
+    try:
+        total = json.loads(text).get("total_flows")
+    except (json.JSONDecodeError, AttributeError):
+        return None
+    return total if isinstance(total, int) else None
 
 
 def process_table():
@@ -283,8 +302,10 @@ class ManagedMaestro:
     async def run(self, device, commands):
         return await self.call("run", device, commands)
 
-    async def run_files(self, device, files, env=None):
-        return await self.call("run_files", device, files, env)
+    async def run_files(
+        self, device, files=None, env=None, directory=None, include=None, exclude=None
+    ):
+        return await self.call("run_files", device, files, env, directory, include, exclude)
 
     async def reset(self):
         await self.process.reset()
