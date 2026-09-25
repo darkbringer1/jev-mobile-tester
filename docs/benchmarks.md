@@ -30,24 +30,26 @@ Tokens: real `usage` fields from each agent transcript, deduped per message id
 
 ### Smoke suite, 12 flows, one run call per flow
 
-| | Maestro MCP | jev (screen on every pass) | jev (one-line results) |
-|---|---|---|---|
-| Result | 12/12 | 12/12 | 12/12 |
-| Wall time | 11.2 min | 11.3 min | 11.1 min |
-| Turns | 16 | 17 | 17 |
-| Result payload | ~430 chars/flow | ~2,000 chars/flow | **126 chars/flow** |
-| Total tokens | **692k** | 793k (+15%) | 731k (+5.6%) |
+| | Maestro MCP | jev (screen on every pass) | jev (one-line results) | jev (+100 s wait, e9bef31) |
+|---|---|---|---|---|
+| Result | 12/12 | 12/12 | 12/12 | 12/12 |
+| Wall time | 11.2 min | 11.3 min | 11.1 min | 11.3 min |
+| Turns | 16 | 17 | 17 | **16** |
+| Result payload | ~430 chars/flow | ~2,000 chars/flow | 126 chars/flow | **84 chars/flow** |
+| Total tokens | 692k | 793k (+15%) | 731k (+5.6%) | **684k (−1.2%)** |
 
-The remaining +5.6% is exactly one extra turn: the cold first flow (61 s) returned
-`running` and needed one `run_report`. (Fixed afterwards: e9bef31 waits 100 s by default.)
+The one-line column's +5.6% was exactly one extra turn: the cold first flow returned
+`running` and needed one `run_report`. With the 100 s default wait the cold flow (107 s
+including login) finished in one call, turn counts matched, and jev came out marginally
+cheaper on smaller results alone.
 
 ## Conclusions
 
 1. **Turns decide cost.** Each turn re-reads ~26k base context plus history; one turn
    (~45k) outweighs all payload savings. Bytes matter only once turn counts are equal.
 2. jev wins exploratory work (smaller screens, fewer reads needed).
-3. For scripted suites the runners are equal once results are one line and the cold start
-   fits in one call.
+3. For scripted suites the runners are equal (jev −1.2%) once results are one line and the
+   cold start fits in one call.
 4. Biggest remaining levers: whole-suite runs in one call; and local decisions for
    exploratory goals (`run_goal`) — see [qwen-probe.md](qwen-probe.md).
 
