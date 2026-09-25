@@ -52,7 +52,7 @@ solid yet, and repeat runs are planned. It measures the direct tools (`screen`, 
 not the model-driven `run_goal` loop. Screens have since switched to a more compact
 one-line-per-element format, which isn't reflected in these numbers.
 
-### Scripted suite: 15% more tokens, since fixed
+### Scripted suite: from 15% more tokens to level
 
 The same setup ran 12 existing smoke flows, one `run` call per flow. Both runners passed
 12/12 at the same speed, 42–57 s per flow. jev's first flow took 62 s against Maestro's
@@ -60,24 +60,28 @@ The same setup ran 12 existing smoke flows, one `run` call per flow. Both runner
 692k (+15%)**: every passing flow returned the final screen, about 2k characters per
 result against Maestro's ~430, and the agent re-read them on every later turn.
 
-After that, file and directory runs return a one-line result on pass and include the
-screen only on failure. Rerunning the suite (jev only; Maestro's run 7 numbers stand):
+Two fixes followed, each measured by rerunning the suite (jev only; Maestro's numbers
+stand):
 
-| | Maestro | jev before | jev after |
-|---|---|---|---|
-| Result | 12/12 | 12/12 | 12/12 |
-| Wall time | 11.2 min | 11.3 min | 11.1 min |
-| Run results in context | ~430 chars/flow | ~2,000 chars/flow | **126 chars/flow** |
-| Total tokens | 692k | 793k (+15%) | 731k (+5.6%) |
+1. File and directory runs return a one-line result on pass, and the screen only on failure.
+2. The default wait went from 45 s to 100 s. The cold first flow (61 s) had returned
+   `running`, which cost one extra agent turn.
 
-The remaining 39k gap is one agent turn. The cold first flow took 61 s, longer than the
-45 s default wait, so it returned `running` and the agent spent a turn on `run_report`.
-Each turn re-reads ~45k tokens of context, more than all the result-size savings. The
-default wait is now 100 s, which isn't measured yet.
+| | Maestro | jev at first | after fix 1 | **after fix 2** |
+|---|---|---|---|---|
+| Result | 12/12 | 12/12 | 12/12 | **12/12** |
+| Wall time | 11.2 min | 11.3 min | 11.1 min | **11.3 min** |
+| Agent turns | 16 | 17 | 17 | **16** |
+| Run results in context | ~430 chars/flow | ~2,000 chars/flow | 126 chars/flow | **~85 chars/flow** |
+| Total tokens | 692k | 793k (+15%) | 731k (+5.6%) | **684k (−1.2%)** |
 
-**Lesson so far: agent turns drive cost.** Result size only matters once turn counts are
-equal. `run_flow(dir=..., include_tags=[...])` now runs a whole suite in one call, which
-should cut turns for either runner. It hasn't been measured yet.
+With equal turn counts, jev comes out slightly cheaper, all of it from smaller results.
+For scripted suites the two runners are effectively level.
+
+**Lesson so far: agent turns drive cost.** Fix 1 saved 62k tokens by shrinking results;
+fix 2 saved 47k by removing one turn. `run_flow(dir=..., include_tags=[...])` now runs a
+whole suite in one call, which should cut turns for either runner. It hasn't been measured
+yet.
 
 ## Use it in your workflow
 
