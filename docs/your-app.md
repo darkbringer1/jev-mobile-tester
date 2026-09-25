@@ -104,7 +104,9 @@ make install
 make connect APP=com.example.yourapp PROJECT=/path/to/your-app DEVICE=YOUR_SIMULATOR_UDID
 ```
 
-This configures Claude Code, Codex, and Cursor when they are installed. Restart open agent
+`make install` already registers the server user-wide; `connect` adds this app's default
+bundle ID for the project. Both configure Claude Code (every discovered config, asking
+for each), Codex, and Cursor when they are installed. Restart open agent
 sessions afterwards. `--device` is optional when exactly one device is connected.
 Remove any separate Maestro MCP server from those clients; `screen`, `screenshot`, and
 `run_flow` cover direct control. Manual alternative:

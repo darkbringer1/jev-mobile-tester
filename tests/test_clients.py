@@ -1,7 +1,8 @@
 import json
 import tomllib
 
-from jev_mobile.clients import register_codex, register_cursor
+from jev_mobile import clients
+from jev_mobile.clients import claude_configs, register_claude, register_codex, register_cursor
 
 SPEC = {"command": "/bin/jev-mobile", "args": ["serve"], "env": {"JEV_APP_ID": "com.x"}}
 
@@ -33,3 +34,26 @@ def test_cursor_merges_project_config(tmp_path, monkeypatch):
     register_cursor(SPEC, False)
     servers = json.loads(path.read_text())["mcpServers"]
     assert servers == {"other": {"command": "x"}, "jev-mobile": SPEC}
+
+
+def test_claude_configs_find_default_and_profiles(tmp_path, monkeypatch):
+    monkeypatch.setattr(clients.Path, "home", lambda: tmp_path)
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    (tmp_path / ".claude.json").write_text("{}")
+    (tmp_path / ".claude-work").mkdir()
+    (tmp_path / ".claude-work" / ".claude.json").write_text("{}")
+    (tmp_path / ".claude-empty").mkdir()
+    (tmp_path / ".claude.json.backup").write_text("{}")
+    assert claude_configs() == [None, tmp_path / ".claude-work"]
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / ".claude-work"))
+    assert claude_configs() == [None, tmp_path / ".claude-work"]
+
+
+def test_register_claude_targets_config_dir(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", "/elsewhere")
+    monkeypatch.setattr(clients.subprocess, "run", lambda cmd, **kw: calls.append((cmd, kw["env"])))
+    register_claude(SPEC, True, tmp_path)
+    register_claude(SPEC, True, None)
+    assert [env.get("CLAUDE_CONFIG_DIR") for _, env in calls] == [str(tmp_path)] * 2 + [None] * 2
+    assert calls[1][0][:6] == ["claude", "mcp", "add", "jev-mobile", "-s", "user"]

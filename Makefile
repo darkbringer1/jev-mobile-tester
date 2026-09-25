@@ -17,7 +17,7 @@ DEVICE ?=
 CLIENT ?=
 
 .PHONY: help check install install-cli laya laya-status laya-logs doctor devices apps \
-	connect test uninstall laya-uninstall
+	register connect test uninstall laya-uninstall
 
 help: ## Show this help
 	@echo "Jev Mobile: local MCP server for driving iOS simulators from AI agents"
@@ -31,14 +31,16 @@ help: ## Show this help
 	@echo
 	@echo "connect options: APP=bundle id, DEVICE=simulator UDID, PROJECT=app repo,"
 	@echo "                 CLIENT=claude|codex|cursor|json (default: all detected)"
+	@echo "register/connect ask per Claude config (~/.claude.json, ~/.claude-*); YES=1 skips"
 
 check: ## Check prerequisites (uv, Xcode, Java, Maestro)
 	@echo "Checking prerequisites:"
 	@scripts/check.sh
 
-install: check install-cli laya ## Install everything: CLI command + local Laya model service
+install: check install-cli laya register ## Install everything: CLI, Laya service, agent registration
 	@echo
-	@echo "Installed. Next: make apps, then make connect APP=<bundle id> PROJECT=<app repo>"
+	@echo "Installed for every project. Optional per-app default:"
+	@echo "  make connect APP=<bundle id> PROJECT=<app repo>"
 
 install-cli: ## Install only the `jev-mobile` command on your PATH
 	uv sync --locked
@@ -84,11 +86,15 @@ apps: ## List your installed apps' bundle IDs on booted simulators
 			'import json,sys; [print("  " + k + "  (" + (v.get("CFBundleDisplayName") or v.get("CFBundleName") or "?") + ")") for k,v in sorted(json.load(sys.stdin).items()) if v.get("ApplicationType")=="User"]'; \
 	done
 
+register: ## Register the MCP server user-wide with every detected agent and Claude config
+	@command -v jev-mobile >/dev/null || { echo "Run make install-cli first"; exit 1; }
+	jev-mobile setup --global $(if $(YES),--yes) $(foreach c,$(CLIENT),--client $(c))
+
 connect: ## Register the MCP server with your AI agents for PROJECT
 	@command -v jev-mobile >/dev/null || { echo "Run make install first"; exit 1; }
 	cd "$(patsubst ~%,$(HOME)%,$(PROJECT))" && jev-mobile setup \
 		$(if $(APP),--app-id "$(APP)") $(if $(DEVICE),--device "$(DEVICE)") \
-		$(foreach c,$(CLIENT),--client $(c))
+		$(if $(YES),--yes) $(foreach c,$(CLIENT),--client $(c))
 
 test: ## Run tests and lint (for contributors)
 	uv sync --locked

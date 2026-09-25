@@ -167,17 +167,23 @@ Three commands from this checkout (run `make` to see every target):
 
 ```sh
 make install                                        # checks prerequisites, installs the
-                                                    # jev-mobile command and the Laya service
+                                                    # jev-mobile command and the Laya service,
+                                                    # and registers the MCP server user-wide
 make apps                                           # bundle IDs on booted simulators
-make connect APP=com.example.yourapp PROJECT=~/code/your-app
+make connect APP=com.example.yourapp PROJECT=~/code/your-app   # optional per-app default
 ```
+
+`make install` ends with `make register`, which runs `jev-mobile setup --global`, so every
+project sees the tools. It discovers each Claude Code config (`~/.claude.json` plus
+`~/.claude-*` profiles used with `CLAUDE_CONFIG_DIR`) and asks before registering in each;
+`YES=1` (or `--yes`) registers in all of them without asking.
 
 `make check` lists anything missing with the command to install it. `make doctor` checks
 Laya and Maestro afterwards. Without make, the equivalent is `uv tool install --editable .`
 and then `jev-mobile setup --app-id com.example.yourapp` inside your app repository.
 
 `setup` registers the server with every detected client: Claude Code (this project's
-local scope), Codex (`~/.codex/config.toml`, with a 210-second tool timeout), and Cursor
+local scope, in each discovered config), Codex (`~/.codex/config.toml`, with a 210-second tool timeout), and Cursor
 (`.cursor/mcp.json`). Use `--client` to pick one, `--global` for user-wide Claude/Cursor
 config, `--device` to pin a simulator, and `--client json` to print a config for other clients.
 It defaults to the local Laya backend. The server exposes direct Maestro tools too

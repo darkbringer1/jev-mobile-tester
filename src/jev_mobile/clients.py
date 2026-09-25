@@ -42,19 +42,54 @@ def detected():
     return found or ["json"]
 
 
-def register_claude(spec, global_scope):
+def claude_configs():
+    """Claude Code config dirs: None is the default ~/.claude.json; others via CLAUDE_CONFIG_DIR."""
+    home = Path.home()
+    found = [None] if (home / ".claude.json").exists() or (home / ".claude").is_dir() else []
+    # Profiles such as `CLAUDE_CONFIG_DIR=~/.claude-work claude` keep separate MCP servers.
+    for path in sorted(home.glob(".claude-*")):
+        if path.is_dir() and any((path / f).exists() for f in (".claude.json", "settings.json")):
+            found.append(path)
+    if os.getenv("CLAUDE_CONFIG_DIR"):
+        found.append(Path(os.environ["CLAUDE_CONFIG_DIR"]).expanduser())
+    return list(dict.fromkeys(found)) or [None]
+
+
+def config_label(config):
+    return "~/.claude.json" if config is None else str(config).replace(str(Path.home()), "~", 1)
+
+
+def confirmed(configs, assume_yes):
+    if assume_yes or len(configs) < 2 or not sys.stdin.isatty():
+        return configs
+    chosen = []
+    for config in configs:
+        answer = input(f"Register {NAME} in Claude Code config {config_label(config)}? [Y/n] ")
+        if answer.strip().lower() in ("", "y", "yes"):
+            chosen.append(config)
+    return chosen
+
+
+def register_claude(spec, global_scope, config=None):
     scope = "user" if global_scope else "local"
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDE_CONFIG_DIR"}
+    if config is not None:
+        env["CLAUDE_CONFIG_DIR"] = str(config)
     subprocess.run(
-        ["claude", "mcp", "remove", NAME, "-s", scope], capture_output=True, check=False
+        ["claude", "mcp", "remove", NAME, "-s", scope],
+        capture_output=True,
+        check=False,
+        env=env,
     )
-    env = [part for key, value in spec["env"].items() for part in ("-e", f"{key}={value}")]
+    options = [part for key, value in spec["env"].items() for part in ("-e", f"{key}={value}")]
     subprocess.run(
-        ["claude", "mcp", "add", NAME, "-s", scope, *env, "--", spec["command"], *spec["args"]],
+        ["claude", "mcp", "add", NAME, "-s", scope, *options, "--", spec["command"], *spec["args"]],
         check=True,
         capture_output=True,
         text=True,
+        env=env,
     )
-    return f"Claude Code ({scope} scope)"
+    return f"Claude Code {config_label(config)} ({scope} scope)"
 
 
 def codex_block(spec):
@@ -130,12 +165,20 @@ def setup(args):
         if client == "json":
             print(json.dumps({"mcpServers": {NAME: spec}}, indent=2))
             continue
-        register = {"claude": register_claude, "codex": register_codex, "cursor": register_cursor}
-        try:
-            registered.append(register[client](spec, args.global_scope))
-        except (OSError, ValueError, subprocess.CalledProcessError) as error:
-            detail = getattr(error, "stderr", None) or error
-            print(f"{client}: registration failed: {str(detail).strip()}", file=sys.stderr)
+        if client == "claude":
+            configs = confirmed(claude_configs(), args.yes)
+            jobs = [
+                (client, lambda c=c: register_claude(spec, args.global_scope, c)) for c in configs
+            ]
+        else:
+            register = {"codex": register_codex, "cursor": register_cursor}[client]
+            jobs = [(client, lambda r=register: r(spec, args.global_scope))]
+        for name, job in jobs:
+            try:
+                registered.append(job())
+            except (OSError, ValueError, subprocess.CalledProcessError) as error:
+                detail = getattr(error, "stderr", None) or error
+                print(f"{name}: registration failed: {str(detail).strip()}", file=sys.stderr)
     for line in registered:
         print(f"registered {NAME} with {line}")
     for problem in warnings(args):

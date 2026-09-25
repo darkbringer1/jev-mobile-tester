@@ -49,6 +49,12 @@ def parser():
         action="store_true",
         help="Claude user scope and ~/.cursor instead of this project (Codex is always global)",
     )
+    setup.add_argument(
+        "--yes",
+        "-y",
+        action="store_true",
+        help="Register in every discovered Claude Code config without asking",
+    )
     setup.add_argument("--backend", choices=("jev", "laya"), default="laya")
     setup.add_argument("--laya-url", help="Local Laya origin; default http://127.0.0.1:8081")
     local = sub.add_parser("laya-serve", help="Serve Laya locally on Apple Silicon (extra: laya)")
