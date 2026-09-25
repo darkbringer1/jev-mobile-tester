@@ -16,6 +16,8 @@ from .maestro import connect
 from .policy import create_model, request_body
 from .screen import parse_screen
 
+DEFAULT_RUNS = "~/Library/Application Support/jev-mobile/runs"
+
 
 def parser():
     root = argparse.ArgumentParser(description="Mobile automation with Jev + Maestro")
@@ -24,9 +26,31 @@ def parser():
     serve = sub.add_parser("serve", help="Serve compact goal tools over local MCP stdio")
     serve.add_argument("--device", default=os.getenv("JEV_DEVICE_ID"))
     serve.add_argument("--app-id", default=os.getenv("JEV_APP_ID"))
-    serve.add_argument("--output", type=Path, default=Path("runs/mcp"))
+    serve.add_argument(
+        "--output",
+        type=Path,
+        default=Path(os.getenv("JEV_RUNS", DEFAULT_RUNS)).expanduser(),
+        help="Run reports directory, outside the agent's workspace by default",
+    )
     serve.add_argument("--timeout", type=float, default=180)
     serve.add_argument("--min-confidence", type=float, default=0.5)
+    setup = sub.add_parser("setup", help="Register the MCP server with local AI agent clients")
+    setup.add_argument("--app-id", help="Default bundle ID; agents can still pass app_id")
+    setup.add_argument("--device", help="Default device; else the single connected device")
+    setup.add_argument(
+        "--client",
+        action="append",
+        choices=("claude", "codex", "cursor", "json"),
+        help="Repeatable; default: every detected client",
+    )
+    setup.add_argument(
+        "--global",
+        dest="global_scope",
+        action="store_true",
+        help="Claude user scope and ~/.cursor instead of this project (Codex is always global)",
+    )
+    setup.add_argument("--backend", choices=("jev", "laya"), default="laya")
+    setup.add_argument("--laya-url", help="Local Laya origin; default http://127.0.0.1:8081")
     local = sub.add_parser("laya-serve", help="Serve Laya locally on Apple Silicon (extra: laya)")
     local.add_argument("--port", type=int, default=8081)
     sub.add_parser("devices", help="List devices through Maestro MCP")
@@ -127,6 +151,10 @@ def main():
 
             serve(port=args.port)
             return
+        if args.command == "setup":
+            from .clients import setup
+
+            raise SystemExit(setup(args))
         if args.command == "serve":
             from .server import create_server
 

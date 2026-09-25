@@ -20,7 +20,9 @@ Never commit `.env`, `runs/`, credentials, or personal simulator screenshots.
 - `maestro.py`: own the persistent Maestro MCP session.
 - `agent.py`: execute the bounded observation/decision/action loop.
 - `cli.py`: command inputs and artifacts.
-- `server.py`: compact MCP facade with `devices`, `run_goal`, and `run_report`.
+- `server.py`: compact MCP facade: direct `devices`, `screen`, `screenshot`, `run_flow`,
+  and goal-level `run_goal`, `run_report`.
+- `clients.py`: `jev-mobile setup` registration for Claude Code, Codex, and Cursor.
 
 Keep model output restricted to offered choices. Keep ordinary MCP responses compact
 and detail retrieval explicit. Preserve independent completion assertions.

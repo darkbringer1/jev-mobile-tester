@@ -23,7 +23,9 @@ async def check():
     ):
         await client.initialize()
         tools = (await client.list_tools()).tools
-        assert {t.name for t in tools} == {"devices", "run_goal", "run_report"}
+        assert {t.name for t in tools} == {
+            "devices", "screen", "screenshot", "run_flow", "run_goal", "run_report"
+        }
         result = await client.call_tool("devices", {})
         assert not result.isError
         devices = json.loads(result.content[0].text)["devices"]

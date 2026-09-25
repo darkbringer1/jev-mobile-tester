@@ -21,12 +21,19 @@ class Maestro:
     def for_app(self, app_id):
         return Maestro(self.session, self.tools, app_id)
 
-    async def call(self, name, arguments):
+    async def call_raw(self, name, arguments):
         result = await self.session.call_tool(name, arguments)
         text = "\n".join(item.text for item in result.content if item.type == "text")
         if result.isError or text.startswith(("Failed to ", "Error:")):
             raise RuntimeError(f"Maestro {name} failed: {text}")
-        return text
+        return result, text
+
+    async def call(self, name, arguments):
+        return (await self.call_raw(name, arguments))[1]
+
+    async def screenshot(self, device):
+        result, _ = await self.call_raw("take_screenshot", {"device_id": device})
+        return [item for item in result.content if item.type == "image"]
 
     async def devices(self):
         return await self.call("list_devices", {})
@@ -48,7 +55,16 @@ class Maestro:
             tool, args = "run_flow", {"device_id": device, "flow_yaml": flow}
         else:
             raise RuntimeError("Maestro MCP must expose run or run_flow")
-        text = await self.call(tool, args)
+        return self.checked(await self.call(tool, args))
+
+    async def run_files(self, device, files, env=None):
+        if "run" not in self.tools:
+            raise RuntimeError("Running flow files needs Maestro's run tool")
+        args = {"device_id": device, "files": files, **({"env": env} if env else {})}
+        return self.checked(await self.call("run", args))
+
+    @staticmethod
+    def checked(text):
         # Older releases may return a command failure without setting MCP isError.
         try:
             result = json.loads(text)

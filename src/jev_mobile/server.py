@@ -12,7 +12,7 @@ from pathlib import Path
 import httpx
 import yaml
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.types import ToolAnnotations
+from mcp.types import ImageContent, ToolAnnotations
 
 from .agent import run_agent
 from .maestro import connect
@@ -63,6 +63,74 @@ class MobileService:
             ]
         }
 
+    async def resolve_device(self, device_id):
+        if device_id := device_id or self.device_id:
+            return device_id
+        data = json.loads(await self.maestro.devices())
+        connected = [d["device_id"] for d in data.get("devices", []) if d.get("connected")]
+        if len(connected) != 1:
+            raise LookupError(f"{len(connected)} connected devices; pass device_id")
+        return connected[0]
+
+    async def direct(self, operation, device_id=None):
+        """Run one direct Maestro operation under the lock shared with goal runs."""
+        if self.lock.locked():
+            return {"status": "busy"}
+        try:
+            async with self.lock, asyncio.timeout(self.timeout):
+                return await operation(await self.resolve_device(device_id))
+        except TimeoutError:
+            return {"status": "timeout", "error": f"Exceeded {self.timeout:g}s"}
+        except Exception as error:  # noqa: BLE001 -- keep transport failures bounded for callers
+            return {"status": "error", "error": short_error(error)}
+
+    async def screen(self, device_id=None):
+        async def observe(device):
+            elements = []
+            for element in (await self.maestro.observe(device)).elements:
+                item = {"text": element.label, "id": element.resource_id, "value": element.value}
+                item = {k: v for k, v in item.items() if v}
+                if element.checked:
+                    item["checked"] = True
+                if element.selected:
+                    item["selected"] = True
+                elements.append(item)
+            return {"device": device, "elements": elements}
+
+        return await self.direct(observe, device_id)
+
+    async def screenshot(self, device_id=None):
+        return await self.direct(self.maestro.screenshot, device_id)
+
+    async def run_flow(self, commands=None, files=None, device_id=None, app_id=None, env=None):
+        if (commands is None) == (not files):
+            return {"status": "invalid", "error": "Pass exactly one of commands or files"}
+        if commands is not None:
+            try:
+                documents = [d for d in yaml.safe_load_all(commands) if d is not None]
+            except yaml.YAMLError as error:
+                return {"status": "invalid", "error": short_error(error)}
+            if len(documents) == 2 and isinstance(documents[0], dict):
+                app_id = app_id or documents[0].get("appId")
+                documents = documents[1:]
+            steps = documents[0] if len(documents) == 1 else None
+            if not isinstance(steps, list) or not steps:
+                return {"status": "invalid", "error": "commands must be a YAML list of steps"}
+            app_id = app_id or self.app_id
+            if not isinstance(app_id, str) or not app_id:
+                return {"status": "invalid", "error": "Set app_id, or a server default"}
+
+            async def execute(device):
+                await self.maestro.for_app(app_id).run(device, steps)
+                return {"status": "passed", "steps": len(steps)}
+        else:
+
+            async def execute(device):
+                await self.maestro.run_files(device, [str(Path(f).resolve()) for f in files], env)
+                return {"status": "passed", "files": len(files)}
+
+        return await self.direct(execute, device_id)
+
     async def run(
         self, goal, expect_text=None, device_id=None, app_id=None, values=None, max_steps=30
     ):
@@ -72,8 +140,8 @@ class MobileService:
         expect_text = expect_text or []
         if not goal.strip() or len(goal) > 4000:
             return {"status": "invalid", "error": "goal must contain 1–4000 characters"}
-        if not device_id or not app_id:
-            return {"status": "invalid", "error": "Set device_id and app_id, or server defaults"}
+        if not app_id:
+            return {"status": "invalid", "error": "Set app_id, or a server default"}
         if not 1 <= max_steps <= 100:
             return {"status": "invalid", "error": "max_steps must be 1–100"}
         if len(expect_text) > 20 or len(values) > 100:
@@ -89,6 +157,10 @@ class MobileService:
         if self.lock.locked():
             return {"status": "busy"}
         async with self.lock:
+            try:
+                device_id = await self.resolve_device(device_id)
+            except Exception as error:  # noqa: BLE001 -- report before creating a run
+                return {"status": "invalid", "error": short_error(error)}
             run_id = uuid.uuid4().hex
             directory = self.output / run_id
             directory.mkdir(parents=True)
@@ -198,8 +270,10 @@ def create_server(
         "jev-mobile",
         lifespan=lifespan,
         instructions=(
-            "Delegate mobile goals with run_goal. Only verified means assertions passed. "
-            "Use run_report only for debugging. No screen dumps needed."
+            "Mobile simulator control via Maestro. Prefer screen + run_flow for precise "
+            "steps and existing Maestro tests; run_goal delegates a bounded goal to a local "
+            "model and only verified means assertions passed. device_id defaults to the "
+            "configured or single connected device."
         ),
     )
 
@@ -209,6 +283,43 @@ def create_server(
     async def devices(ctx: Context) -> str:
         """List connected devices. Skip when device_id is configured."""
         return compact(await ctx.request_context.lifespan_context.devices())
+
+    @server.tool(
+        structured_output=False, annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False)
+    )
+    async def screen(ctx: Context, device_id: str | None = None) -> str:
+        """Visible elements as {text,id,value}. Target them in run_flow by text or id."""
+        return compact(await ctx.request_context.lifespan_context.screen(device_id))
+
+    @server.tool(
+        structured_output=False, annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False)
+    )
+    async def screenshot(ctx: Context, device_id: str | None = None) -> list[ImageContent] | str:
+        """PNG of the current screen. Costly; prefer screen for text and IDs."""
+        result = await ctx.request_context.lifespan_context.screenshot(device_id)
+        return result if isinstance(result, list) else compact(result)
+
+    @server.tool(
+        structured_output=False,
+        annotations=ToolAnnotations(destructiveHint=True, idempotentHint=False),
+    )
+    async def run_flow(
+        ctx: Context,
+        commands: str | None = None,
+        files: list[str] | None = None,
+        device_id: str | None = None,
+        app_id: str | None = None,
+        env: dict[str, str] | None = None,
+    ) -> str:
+        """Run Maestro steps. commands: YAML list, e.g. '- tapOn: "General"\n- inputText: hi\n
+        - assertVisible: About'. Also: launchApp, tapOn {id}, eraseText, back, scroll,
+        swipe, pressKey. files: existing flow paths (env optional). Omit app_id if configured.
+        """
+        return compact(
+            await ctx.request_context.lifespan_context.run_flow(
+                commands, files, device_id, app_id, env
+            )
+        )
 
     @server.tool(
         structured_output=False,

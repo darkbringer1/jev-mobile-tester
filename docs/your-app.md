@@ -97,6 +97,19 @@ because the tested iOS hierarchy does not expose editable control types reliably
 
 ## 5. Connect your AI agent
 
+Quickest path: install the command once, then register it from your app repository:
+
+```sh
+uv tool install --editable /absolute/path/to/jev-mobile
+cd /path/to/your-app
+jev-mobile setup --app-id com.example.yourapp --device YOUR_SIMULATOR_UDID
+```
+
+This configures Claude Code, Codex, and Cursor when they are installed. Restart open agent
+sessions afterwards. `--device` is optional when exactly one device is connected.
+Remove any separate Maestro MCP server from those clients; `screen`, `screenshot`, and
+`run_flow` cover direct control. Manual alternative:
+
 Copy [examples/mcp-laya.json](../examples/mcp-laya.json) into the MCP configuration supported
 by your agent. Replace these values:
 

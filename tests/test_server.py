@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 import yaml
 from mcp.shared.memory import create_connected_server_and_client_session
+from mcp.types import ImageContent
 
 from jev_mobile.screen import parse_screen
 from jev_mobile.server import MobileService, compact, create_server
@@ -35,6 +36,12 @@ class Device:
 
     async def observe(self, device_id):
         return self.screen
+
+    async def screenshot(self, device_id):
+        return [ImageContent(type="image", data="cG5n", mimeType="image/png")]
+
+    async def run_files(self, device_id, files, env=None):
+        self.calls.append((None, files))
 
     async def run(self, device_id, commands):
         self.calls.append((self.app_id, commands))
@@ -163,12 +170,16 @@ def test_full_mcp_protocol_no_duplicate_payload(tmp_path):
         svc = service(tmp_path, Model("TAP", "DONE"))
         async with create_connected_server_and_client_session(create_server(service=svc)) as client:
             tools = (await client.list_tools()).tools
-            assert {t.name for t in tools} == {"devices", "run_goal", "run_report"}
+            assert {t.name for t in tools} == {
+                "devices", "screen", "screenshot", "run_flow", "run_goal", "run_report"
+            }
             assert all(t.outputSchema is None for t in tools)
             devices = await client.call_tool("devices", {})
             assert json.loads(devices.content[0].text)["devices"] == [
                 {"id": "sim", "name": "iPhone", "platform": "ios"}
             ]
+            image = await client.call_tool("screenshot", {})
+            assert [c.type for c in image.content] == ["image"]
             result = await client.call_tool(
                 "run_goal", {"goal": "Open Settings", "expect_text": ["Settings"]}
             )
@@ -196,3 +207,42 @@ def test_device_transport_errors_stay_compact(tmp_path):
     result = asyncio.run(svc.devices())
     assert result["status"] == "error"
     assert len(compact(result)) < 300
+
+
+def test_screen_is_compact_and_omits_empty_fields(tmp_path):
+    result = asyncio.run(service(tmp_path).screen())
+    assert result["device"] == "sim"
+    assert result["elements"] and all(item for item in result["elements"])
+    assert not any(v == "" for item in result["elements"] for v in item.values())
+
+
+def test_run_flow_wraps_commands_with_default_app(tmp_path):
+    svc = service(tmp_path)
+    result = asyncio.run(svc.run_flow('- tapOn: "General"\n- back'))
+    assert result == {"status": "passed", "steps": 2}
+    assert svc.maestro.calls == [("com.example.app", [{"tapOn": "General"}, "back"])]
+
+
+def test_run_flow_accepts_full_flow_and_files(tmp_path):
+    svc = MobileService(Device(), Model(), tmp_path, device_id="sim")
+    flow = "appId: com.full.app\n---\n- launchApp\n"
+    assert asyncio.run(svc.run_flow(flow))["status"] == "passed"
+    assert asyncio.run(svc.run_flow(files=["flows/login.yaml"]))["status"] == "passed"
+    assert svc.maestro.calls[0] == ("com.full.app", ["launchApp"])
+    assert svc.maestro.calls[1][1][0].endswith("flows/login.yaml")
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [{}, {"commands": "- back", "files": ["a.yaml"]}, {"commands": "tapOn: x"}, {"commands": ":"}],
+)
+def test_run_flow_rejects_invalid_input_before_device_actions(tmp_path, kwargs):
+    svc = service(tmp_path)
+    assert asyncio.run(svc.run_flow(**kwargs))["status"] == "invalid"
+    assert svc.maestro.calls == []
+
+
+def test_single_connected_device_is_used_by_default(tmp_path):
+    svc = MobileService(Device(), Model(), tmp_path, app_id="com.example.app")
+    assert asyncio.run(svc.run("Open"))["status"] == "done_unverified"
+    assert asyncio.run(svc.screen())["device"] == "sim"

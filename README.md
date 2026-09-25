@@ -163,7 +163,22 @@ Device discovery and the offline tests work without an API key.
 
 ## Use it with your agent
 
-Use [the Laya MCP config](examples/mcp-laya.json) for local inference, or
+Install the command once, then register it from your app's repository:
+
+```sh
+uv tool install --editable /absolute/path/to/jev-mobile   # puts jev-mobile on PATH
+cd /path/to/your-app
+jev-mobile setup --app-id com.example.yourapp
+```
+
+`setup` registers the server with every detected client: Claude Code (this project's
+local scope), Codex (`~/.codex/config.toml`, with a 210-second tool timeout), and Cursor
+(`.cursor/mcp.json`). Use `--client` to pick one, `--global` for user-wide Claude/Cursor
+config, `--device` to pin a simulator, and `--client json` to print a config for other clients.
+It defaults to the local Laya backend. The server exposes direct Maestro tools too
+(`screen`, `screenshot`, `run_flow`), so it replaces a separate Maestro MCP server.
+
+For a manual configuration, use [the Laya MCP config](examples/mcp-laya.json) for local inference, or
 [the Jev MCP config](examples/mcp.json) for the hosted API. Replace the paths, simulator ID,
 and app ID with your own. Your client starts the Jev Mobile MCP process; the Laya inference
 service must already be running separately.
@@ -204,7 +219,7 @@ You'll need to know the field's accessibility/resource ID. The model chooses whi
 to fill; free-form text generation isn't implemented yet.
 
 **Saved runs:** CLI output goes to `runs/latest/`. MCP output goes to
-`runs/mcp/<run-id>/`. Completed CLI loops save their steps, a result summary, and `flow.yaml`;
+`~/Library/Application Support/jev-mobile/runs/<run-id>/` (override with `--output` or `JEV_RUNS`). Completed CLI loops save their steps, a result summary, and `flow.yaml`;
 an early CLI exception may leave only a partial trace. MCP goal errors also save a result report.
 You can replay a CLI export with:
 

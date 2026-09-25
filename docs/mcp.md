@@ -1,6 +1,9 @@
 # Local MCP server
 
-Expose Jev Mobile to an AI agent as three small tools. The agent supplies a goal; the
+Quick install: `uv tool install --editable .` from this checkout, then run
+`jev-mobile setup --app-id YOUR_BUNDLE_ID` in your app repository. See the README.
+
+Expose Jev Mobile to an AI agent as six small tools: three direct Maestro tools and three goal tools. The agent supplies a goal; the
 server runs observations, model decisions, target validation, and Maestro actions internally.
 The caller gets one compact outcome. This reduces the caller's screen data and tool-call
 traffic. It does not establish measured total token or cost savings.
@@ -60,6 +63,9 @@ Do not run another controller against the same simulator during a goal.
 | Tool | Use |
 | --- | --- |
 | `devices()` | Connected devices only; omit when a default is configured. |
+| `screen(device_id?)` | Compact visible elements as `{text, id, value}`; no bounds or raw hierarchy. |
+| `screenshot(device_id?)` | Image of the current screen. Large; prefer `screen`. |
+| `run_flow(commands? \| files?, device_id?, app_id?, env?)` | Run a YAML list of Maestro steps (the server adds the `appId` header) or existing flow files. Returns `passed` or a short error. |
 | `run_goal(goal, expect_text?, device_id?, app_id?, values?, max_steps?)` | Execute the bounded loop; return status, run ID, step count, duration, and reported model usage. |
 | `run_report(run_id, last_steps=3)` | Retrieve a compact summary, up to ten recent decisions, and the local exported flow path. |
 
@@ -86,9 +92,13 @@ configuration must already know those field IDs.
 
 ## Output and execution limits
 
+Without `device_id` or a configured default, tools use the single connected device and
+return an error when several are connected. Direct tools share the goal lock, so they
+return `busy` during a goal run.
+
 Normal tool output contains no hierarchy, screenshots, generated YAML, or full step log.
 Each result has one text block, without a duplicate `structuredContent` payload. Details
-live under `runs/mcp/<run_id>/`: `steps.jsonl`, `result.json`, and `flow.yaml`. Ask for
+live under `~/Library/Application Support/jev-mobile/runs/<run_id>/` (or `--output`/`JEV_RUNS`): `steps.jsonl`, `result.json`, and `flow.yaml`. Ask for
 `run_report` only when the extra context is useful. Local files can contain entered values.
 
 One persistent Maestro connection and one HTTP client are reused. Runs are serialized;
