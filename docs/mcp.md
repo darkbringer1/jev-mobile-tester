@@ -1,19 +1,41 @@
 # Local MCP server
 
 Expose Jev Mobile to an AI agent as three small tools. The agent supplies a goal; the
-server runs observations, Jev decisions, target validation, and Maestro actions internally.
+server runs observations, model decisions, target validation, and Maestro actions internally.
 The caller gets one compact outcome. This reduces the caller's screen data and tool-call
-traffic. It does not eliminate the tokens used by Jev or establish measured cost savings.
+traffic. It does not establish measured total token or cost savings.
 
 ```text
-AI agent → run_goal → local Jev Mobile MCP → Jev API + Maestro MCP → simulator
+AI agent → run_goal → local Jev Mobile MCP → local Laya OR hosted Jev
+                                         → Maestro MCP → simulator
          ← short outcome                 ← internal observe/decide/act loop
 ```
 
 ## Connect an agent
 
+### Local Laya
+
+Check `curl --fail http://127.0.0.1:8081/health` first. The development Mac already has
+a background Laya service; other Macs need the [local server setup](laya.md).
+
+Use [examples/mcp-laya.json](../examples/mcp-laya.json). Replace the repository path,
+`JEV_DEVICE_ID`, and `JEV_APP_ID` with your own values. No `.env` or TypeSafe key is needed.
+The MCP client starts the controller; it does not start the Laya inference server.
+
+```sh
+uv run --extra laya jev-mobile serve --backend laya \
+  --device YOUR_SIMULATOR_UDID --app-id com.example.myapp
+```
+
+If your agent is opened in your app's repository, keep `--directory` pointing to the
+separate `jev-mobile` checkout. Use [the app guide](your-app.md) to find the bundle ID
+and supply text-field values. Set the client's tool timeout above the server's 180-second
+default, for example 210 seconds. Do not run the same goal concurrently through raw Maestro.
+
+### Hosted Jev
+
 Copy `.env.example` to `.env` and set `TYPESAFE_API_KEY`. The server uses TypeSafe's
-hosted Jev API; the MCP server itself runs locally. No model weights are served locally.
+hosted Jev API in this mode; the MCP server itself runs locally.
 Without a key, device discovery and saved reports work; goals return `unavailable`
 before any device action. Restart the server after changing credentials.
 
@@ -25,7 +47,7 @@ Equivalent launch command, from this repository:
 
 ```sh
 uv run --env-file .env jev-mobile serve \
-  --device YOUR_SIMULATOR_UDID --app-id com.example.myapp
+  --backend jev --device YOUR_SIMULATOR_UDID --app-id com.example.myapp
 ```
 
 The default device and app can also come from `JEV_DEVICE_ID` and `JEV_APP_ID`. They let
@@ -38,7 +60,7 @@ Do not run another controller against the same simulator during a goal.
 | Tool | Use |
 | --- | --- |
 | `devices()` | Connected devices only; omit when a default is configured. |
-| `run_goal(goal, expect_text?, device_id?, app_id?, values?, max_steps?)` | Execute the bounded loop; return status, run ID, step count, duration, and reported Jev usage. |
+| `run_goal(goal, expect_text?, device_id?, app_id?, values?, max_steps?)` | Execute the bounded loop; return status, run ID, step count, duration, and reported model usage. |
 | `run_report(run_id, last_steps=3)` | Retrieve a compact summary, up to ten recent decisions, and the local exported flow path. |
 
 Example agent call when defaults are configured:
@@ -53,7 +75,7 @@ Illustrative response (not a measured live Jev run):
 {"status":"verified","run_id":"93ae46c3ed3b43cb9f48d3ebc482b162","steps":4,"ms":12345,"jev_tokens":{"input":1200,"output":80}}
 ```
 
-`verified` means the specified Maestro text assertions passed after Jev chose DONE.
+`verified` means the specified Maestro text assertions passed after the model chose DONE.
 Without assertions, DONE returns `done_unverified`. Other outcomes include `blocked`,
 `step_limit`, `error`, `timeout`, `busy`, `invalid`, and `unavailable`. Agents must read
 `status`; receiving a tool response alone does not mean the goal succeeded.
@@ -80,7 +102,9 @@ Cancellation stops the local loop and saves a cancelled report. A command alread
 to the device may have taken effect; cancellation is not rollback. Retries are new runs,
 so inspect failures before repeating goals that change data.
 
-`jev_tokens` totals usage reported on completed decisions; failed or interrupted provider
+The legacy field name `jev_tokens` also carries Laya's reported input/output token counts;
+local Laya inference does not incur TypeSafe API charges. It totals usage on completed decisions;
+failed or interrupted provider
 calls may not return usage and are not counted. It is not the calling agent's token count.
 The offline protocol test keeps its sample goal response below 256 bytes. Actual token
 counts depend on the client model's tokenizer and any host-added protocol formatting.
@@ -95,3 +119,12 @@ uv run python examples/check_mcp.py
 The second command starts the real stdio server and Maestro, lists connected devices,
 and verifies missing-key behavior. It explicitly removes the API key from its child
 process. It neither sends a paid model request nor performs a device action.
+
+To test real local inference separately:
+
+```sh
+uv run --extra laya python examples/laya_smoke.py
+```
+
+That command does not connect to Maestro or act on a device unless `--device` is supplied. Classification
+passed in local validation; Settings navigation did not. See [the test results](laya.md).

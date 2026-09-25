@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "jev-mobile-local": {
+      "command": "uv",
+      "args": [
+        "--directory", "/absolute/path/to/jev-mobile",
+        "run", "--extra", "laya",
+        "jev-mobile", "serve", "--backend", "laya"
+      ],
+      "env": {
+        "JEV_DEVICE_ID": "YOUR_SIMULATOR_UDID",
+        "JEV_APP_ID": "com.apple.Preferences",
+        "LAYA_URL": "http://127.0.0.1:8081"
+      }
+    }
+  }
+}

@@ -13,7 +13,7 @@ import yaml
 
 from .agent import run_agent
 from .maestro import connect
-from .policy import Jev, request_body
+from .policy import create_model, request_body
 from .screen import parse_screen
 
 
@@ -27,6 +27,8 @@ def parser():
     serve.add_argument("--output", type=Path, default=Path("runs/mcp"))
     serve.add_argument("--timeout", type=float, default=180)
     serve.add_argument("--min-confidence", type=float, default=0.5)
+    local = sub.add_parser("laya-serve", help="Serve Laya locally on Apple Silicon (extra: laya)")
+    local.add_argument("--port", type=int, default=8081)
     sub.add_parser("devices", help="List devices through Maestro MCP")
     sub.add_parser("doctor", help="Check the installed Maestro MCP tool contract")
     inspect = sub.add_parser("inspect", help="Show the normalized element table")
@@ -45,6 +47,9 @@ def parser():
     run.add_argument("--max-steps", type=int, default=30)
     run.add_argument("--min-confidence", type=float, default=0.5)
     run.add_argument("--output", type=Path, default=Path("runs/latest"))
+    for command in (run, serve):
+        command.add_argument("--backend", choices=("jev", "laya"), default=None)
+        command.add_argument("--laya-url", help="Local Laya origin; default http://127.0.0.1:8081")
     return root
 
 
@@ -55,7 +60,9 @@ async def execute(args):
         return 0
     values = {}
     if args.command == "run":
-        if not os.getenv("TYPESAFE_API_KEY"):
+        if (args.backend or os.getenv("JEV_BACKEND", "jev")) == "jev" and not os.getenv(
+            "TYPESAFE_API_KEY"
+        ):
             raise ValueError("Set TYPESAFE_API_KEY before running a live goal")
         if args.max_steps < 1 or not 0 <= args.min_confidence <= 1:
             raise ValueError("max-steps must be positive and min-confidence must be in [0, 1]")
@@ -91,7 +98,9 @@ async def execute(args):
                 print(line, flush=True)
 
             async with httpx.AsyncClient(timeout=30) as client:
-                model = Jev(client, os.environ["TYPESAFE_API_KEY"], args.min_confidence)
+                model = create_model(client, args.min_confidence, args.backend, args.laya_url)
+                if model is None:
+                    raise ValueError("Set TYPESAFE_API_KEY or use --backend laya")
                 result = await run_agent(
                     maestro,
                     model,
@@ -113,6 +122,11 @@ async def execute(args):
 def main():
     args = parser().parse_args()
     try:
+        if args.command == "laya-serve":
+            from .laya_server import serve
+
+            serve(port=args.port)
+            return
         if args.command == "serve":
             from .server import create_server
 
@@ -125,6 +139,8 @@ def main():
                 app_id=args.app_id,
                 timeout=args.timeout,
                 min_confidence=args.min_confidence,
+                backend=args.backend,
+                laya_url=args.laya_url,
             ).run()
             return
         raise SystemExit(asyncio.run(execute(args)))

@@ -16,7 +16,7 @@ from mcp.types import ToolAnnotations
 
 from .agent import run_agent
 from .maestro import connect
-from .policy import Jev
+from .policy import create_model
 
 
 def compact(value):
@@ -84,7 +84,7 @@ class MobileService:
         if self.model is None:
             return {
                 "status": "unavailable",
-                "error": "Set TYPESAFE_API_KEY in the server environment",
+                "error": "Set TYPESAFE_API_KEY or select JEV_BACKEND=laya",
             }
         if self.lock.locked():
             return {"status": "busy"}
@@ -179,6 +179,8 @@ def create_server(
     app_id=None,
     timeout=180,
     min_confidence=0.5,
+    backend=None,
+    laya_url=None,
     service=None,
 ):
     @asynccontextmanager
@@ -187,8 +189,7 @@ def create_server(
             yield service
             return
         async with connect(maestro_command) as maestro, httpx.AsyncClient(timeout=30) as client:
-            key = os.getenv("TYPESAFE_API_KEY")
-            model = Jev(client, key, min_confidence) if key else None
+            model = create_model(client, min_confidence, backend, laya_url)
             yield MobileService(
                 maestro, model, output, device_id=device_id, app_id=app_id, timeout=timeout
             )

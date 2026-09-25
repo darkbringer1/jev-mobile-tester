@@ -1,5 +1,9 @@
 # Initial validation
 
+Local Laya deployment and real-model results are documented separately in [laya.md](laya.md).
+The local inference service passes its smoke checks; the tested mobile navigation goal
+did not complete successfully.
+
 Validated locally on September 25, 2026:
 
 - 37 offline tests pass, covering hierarchy parsing, compatible action targets, malformed

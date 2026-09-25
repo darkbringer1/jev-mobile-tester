@@ -104,26 +104,41 @@ class Jev:
             headers={"Authorization": f"Bearer {self.api_key}"},
         )
         response.raise_for_status()
-        data = response.json()
-        answers = data["answers"]
+        return decision_from_response(body, response.json(), self.min_confidence)
 
-        def pick(name):
-            return validate_answer(
-                answers.get(name, {}), body["questions"][name]["criteria"], self.min_confidence
-            )
 
-        operation = pick("operation")
-        target = pick(operation.lower() + "_target") if operation in {"TAP", "TYPE_TEXT"} else None
-        value_key = (
-            body["questions"]["type_text_target"]["criteria"][target]["id"]
-            if operation == "TYPE_TEXT"
-            else None
+def decision_from_response(body, data, min_confidence):
+    answers = data["answers"]
+
+    def pick(name):
+        return validate_answer(
+            answers.get(name, {}), body["questions"][name]["criteria"], min_confidence
         )
-        return {
-            "operation": operation,
-            "target": target,
-            "value_key": value_key,
-            "confidence": answers["operation"]["confidence"],
-            "model": data.get("model"),
-            "usage": data.get("usage"),
-        }
+
+    operation = pick("operation")
+    target = pick(operation.lower() + "_target") if operation in {"TAP", "TYPE_TEXT"} else None
+    value_key = (
+        body["questions"]["type_text_target"]["criteria"][target]["id"]
+        if operation == "TYPE_TEXT"
+        else None
+    )
+    return {
+        "operation": operation,
+        "target": target,
+        "value_key": value_key,
+        "confidence": answers["operation"]["confidence"],
+        "model": data.get("model"),
+        "usage": data.get("usage"),
+    }
+
+
+def create_model(client, min_confidence, backend=None, laya_url=None):
+    backend = backend or os.getenv("JEV_BACKEND", "jev")
+    if backend == "laya":
+        from .laya import Laya
+
+        return Laya(client, min_confidence, laya_url or os.getenv("LAYA_URL"))
+    if backend != "jev":
+        raise ValueError("JEV_BACKEND must be jev or laya")
+    key = os.getenv("TYPESAFE_API_KEY")
+    return Jev(client, key, min_confidence) if key else None

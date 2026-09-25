@@ -28,3 +28,11 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Laya (optional local backend)
+
+[Laya](https://github.com/NandhaKishorM/laya) and its pretrained weights are by
+Convai Innovations and upstream contributors, under Apache-2.0.
+[laya-mlx](https://github.com/mizorewww/laya-mlx) is an independent Apache-2.0
+Apple Silicon runtime. Jev Mobile uses its public API as an optional dependency;
+model weights are downloaded separately and are not included in this repository or wheel.
